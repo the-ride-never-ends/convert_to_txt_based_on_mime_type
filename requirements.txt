@@ -1,0 +1,9 @@
+multipledispatch
+pyyaml
+pytest
+pytest-asyncio
+pydantic
+markitdown
+openai
+aiohttp
+playwright

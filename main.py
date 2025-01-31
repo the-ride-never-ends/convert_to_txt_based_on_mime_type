@@ -1,0 +1,340 @@
+import asyncio
+import logging
+import os
+import mimetypes
+from pathlib import Path
+import re
+import sys
+import tempfile
+import time
+from typing import Any, Coroutine, IO, TypeAlias
+from urllib.parse import urlparse
+
+
+import aiohttp
+import requests
+from markitdown import MarkItDown, FileConversionException, UnsupportedFormatException
+from pydantic import BaseModel, Field, HttpUrl, EmailStr
+from playwright.async_api import (
+    Response as PlaywrightResponse,
+    async_playwright, 
+    Browser,
+    BrowserContext,
+    Page,
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+    Playwright,
+    PlaywrightContextManager,
+)
+# from utils.shared.next_step import next_step
+# from utils.shared.sanitize_filename import sanitize_filename
+
+
+# from database.MySqlDatabase import MySqlDatabase
+# from config.config import *
+# from logger.logger import Logger
+
+
+def _count_number_of_camel_case_words(html: str) -> int:
+    # Remove HTML tags
+    text = re.sub('<[^<]+?>', '', html)
+    
+    # Regular expression for camel case words
+    camel_case_pattern = r'([A-Z][a-z]+){2,}'
+    
+    # Find all matches
+    matches = re.findall(camel_case_pattern, text)
+    
+    # Return the count of matches
+    return len(matches)
+
+class Configs(BaseModel):
+    pass
+
+DocumentConverterResult: TypeAlias = Any
+
+
+class MarkItDownAsync(MarkItDown):
+    """
+    A modified version of MarkItDown that supports asynchronous use.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._asyncio_lock = asyncio.Lock()
+        self._concurrency_limit: int = kwargs.get("concurrency_limit", 5)
+        self._aiohttp_session = None
+        self._browser: Browser = None
+        self._playwright_dom_manipulation_ruleset: dict[str, Coroutine | list[Coroutine]] = None
+
+        try: # Importing these should tell is whether or not we have async functionality.
+            import playwright
+            import aiohttp
+            we_have_async = True
+        except:
+            we_have_async = False
+
+        if we_have_async:
+
+            aiohttp_session: aiohttp.ClientSession = kwargs.get("aiohttp_session", None)
+            self._aiohttp_session = aiohttp.ClientSession() if aiohttp_session is None else aiohttp_session
+
+            playwright_context_manager: PlaywrightContextManager = kwargs.get("playwright_context_manager", None)
+
+            if playwright_context_manager is None:
+                print("Warning: No Playwright context manager provided. Loading URLs with Playwright will be disabled.")
+            else:
+                playwright_configs: Configs = kwargs.get("playwright_configs", None)
+                if playwright_configs is not None:
+                    self._browser = playwright_context_manager.chromium.launch(**playwright_configs)
+                else:
+                    self._browser = playwright_context_manager.chromium.launch(headless=True)
+
+    @classmethod
+    def enter(cls, *args, **kwargs):
+        instance = cls(*args, **kwargs)
+        return instance
+
+    async def exit(self):
+        if self._aiohttp_session is not None:
+            await self._aiohttp_session.close()
+        if self._browser is not None:
+            await self._browser.close()
+
+    async def async_convert(self, 
+                      source: str | aiohttp.ClientResponse | Path | requests.Response | Page, 
+                      **kwargs: Any
+                    ) -> DocumentConverterResult:
+        """
+        Args:
+            source: can be a string representing a path either as string pathlib path object or url, 
+                or a requests.response object
+            extension: specifies the file extension to use when interpreting the file. 
+                If None, infer from source (path, uri, content-type, etc.)
+        """
+        # Local path or url
+        if isinstance(source, str):
+            if (
+                source.startswith("http://")
+                or source.startswith("https://")
+                or source.startswith("file://")
+            ):
+                if self._aiohttp_session is None:
+                    return self.convert_url(source, **kwargs)
+                else:
+                    return await self.async_convert_url(source, **kwargs)
+            else:
+                return self.convert_local(source, **kwargs)
+
+        # Request response
+        elif isinstance(source, requests.Response):
+            return self.convert_response(source, **kwargs)
+        elif isinstance(source, Path):
+            return self.convert_local(source, **kwargs)
+        elif isinstance(source, aiohttp.ClientResponse):
+            return self.convert_aiohttp_response(source, **kwargs)
+        elif isinstance(source, PlaywrightResponse) and self._browser is not None:
+            return self.convert_playwright_response(source, **kwargs)
+        else:
+            raise ValueError(f"Unsupported source type: {type(source)}")
+
+
+    async def async_convert_url(
+        self, url: str, **kwargs: Any
+    ) -> DocumentConverterResult:
+        # Send a HTTP request to the URL
+        with self._aiohttp_session.get(url, stream=True) as response:
+            response: aiohttp.ClientResponse
+            response.raise_for_status()
+            text_response = await response.text()
+        try:
+            # Check if we need to render the page with Playwright.
+            if self._figure_out_whether_we_need_to_render_this_url_with_playwright(text_response) and self._browser is not None:
+                return await self._convert_url_with_playwright(url, **kwargs)
+            else:
+                return self.convert_aiohttp_response(response, **kwargs)
+        except: # If we can't parse the HTML, then it's probably not a webpage.
+            return self.convert_aiohttp_response(response, **kwargs)
+
+
+    async def _convert_url_with_playwright(self, url: str, **kwargs: Any) -> DocumentConverterResult:
+        # NOTE Since we always call aiohttp before right this, we can assume that we'll never get a 404 here.
+        page: Page = await self._browser.new_page()
+        _page = await page.goto(url)
+        # if self._playwright_dom_manipulation_ruleset:
+        #     if url in self._playwright_dom_manipulation_ruleset:
+        #         for coroutine in self._playwright_dom_manipulation_ruleset[url]:
+        #             await coroutine(page)
+        if _page is not None:
+            await page.wait_for_load_state('networkidle')
+            response = await _page.request.response()
+            try:
+                return await self.convert_playwright_response(response, page, **kwargs)
+            finally:
+                await page.close()
+        else:
+            return None
+
+
+    # TODO Make this more robust.
+    def _figure_out_whether_we_need_to_render_this_url_with_playwright(self, html: str) -> bool:
+        # Count how many div HTML tags there are.
+        num_of_divs = html.lower().count('<div')
+
+        # Check if there's a lot of camel case words in the webpage.
+        num_of_camel_case_words = _count_number_of_camel_case_words(html)
+
+        return True if num_of_camel_case_words >= num_of_divs else False
+
+
+    def _read_the_extension_from_the_path(self, extensions: list[str], url: str) -> None:
+        base, ext = os.path.splitext(urlparse(url).path)
+        self._append_ext(extensions, ext)
+
+
+    async def _guess_from_the_mimetype(self, 
+                        extensions: list[str], 
+                        response: aiohttp.ClientResponse | PlaywrightResponse
+                        ) -> None:
+        if isinstance(response, PlaywrightResponse):
+            content_type = response.content_type.split(";")[0] if response.content_type else ""
+        else:
+            content_type = response.headers.get("content-type", "").split(";")[0]
+        self._append_ext(extensions, mimetypes.guess_extension(content_type))
+
+
+    async def _read_the_content_disposition_if_there_is_one(
+                        self,
+                        extensions: list[str], 
+                        response: aiohttp.ClientResponse | PlaywrightResponse, 
+                        ) -> None:
+        # Read the content disposition if there is one
+        # Get the headers from the page
+        if isinstance(response, PlaywrightResponse):
+            content_disposition = response.content_disposition if response.content_disposition else ""
+        else:
+            content_disposition = response.headers.get("content-disposition", "")
+        m = re.search(r"filename=([^;]+)", content_disposition)
+        if m:
+            base, ext = os.path.splitext(m.group(1).strip("\"'"))
+            self._append_ext(extensions, ext)
+
+
+    async def _download_and_convert_the_file(
+                        self, 
+                        fh: IO[bytes],
+                        extensions: list[str], 
+                        temp_path: str,
+                        response: aiohttp.ClientResponse | PlaywrightResponse,
+                        **kwargs: Any
+                        ) -> DocumentConverterResult:
+        chunk_size = 512  # Define chunk size (1/2 KB per write)
+        if isinstance(response, PlaywrightResponse):
+            # Get the response body
+            bytes_ = await response.body()
+
+            # Download the file
+            for chunk in range(0, len(bytes_), chunk_size):
+                fh.write(bytes_[chunk:chunk+chunk_size])
+        else:
+            # Download the file
+            async for chunk in response.content.iter_chunked(chunk_size):
+                fh.write(chunk)
+            await response.release()
+        fh.close()
+
+        # Use puremagic to check for more extension options
+        for g in self._guess_ext_magic(temp_path):
+            self._append_ext(extensions, g)
+
+        return self._convert(temp_path, extensions, url=response.url, **kwargs)
+
+    def prepare_a_list_of_extensions_to_try_in_order_of_priority(self,  kwargs: Any) -> list[str]:
+        # Prepare a list of extensions to try (in order of priority)
+        ext = kwargs.get("file_extension")
+        return [ext] if ext is not None else []
+
+    async def convert_playwright_response(self,
+        response: PlaywrightResponse, **kwargs: Any
+    ) -> DocumentConverterResult:
+
+        extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
+
+        await self._guess_from_the_mimetype(extensions, response)
+        await self._read_the_content_disposition_if_there_is_one(extensions, response)
+        self._read_the_extension_from_the_path(extensions, response.url)
+
+        # Save the file locally to a temporary file. It will be deleted before this method exits
+        handle, temp_path = tempfile.mkstemp()
+        fh = os.fdopen(handle, "wb")
+        result = None
+        try:
+            self._download_and_convert_the_file(                        
+                fh, extensions, temp_path, response, **kwargs
+            )
+        finally:
+            self._clean_up(fh, response, temp_path, response)
+        return result
+    
+    def _clean_up(self, fh: IO[bytes], temp_path: str, response: aiohttp.ClientResponse | PlaywrightResponse) -> None:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        try:
+            response.close()
+        except:
+            pass
+        os.unlink(temp_path)
+
+    async def convert_aiohttp_response(
+        self, response: aiohttp.ClientResponse, **kwargs: Any
+    ) -> DocumentConverterResult:  # TODO fix kwargs type
+
+        extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
+
+        await self._guess_from_the_mimetype(extensions, response)
+        await self._read_the_content_disposition_if_there_is_one(extensions, response)
+        self._read_the_extension_from_the_path(extensions, str(response.url))
+
+        # Save the file locally to a temporary file. It will be deleted before this method exits
+        handle, temp_path = tempfile.mkstemp()
+        fh = os.fdopen(handle, "wb")
+        result = None
+        try:
+            self._download_and_convert_the_file(                        
+                fh, extensions, temp_path, response, **kwargs
+            )
+        # Clean up
+        finally:
+            self._clean_up(fh, response, temp_path, response)
+        return result
+
+logger = logging.getLogger(__name__)
+
+
+async def main():
+
+    logger.info("Begin __main__")
+
+    # Load in the config file.
+    config = Configs()
+
+    #mimetypes.guess_type(url)
+
+
+    logger.info("Insert program logic here...")
+    logger.info("End __main__")
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    import os
+    base_name = os.path.basename(__file__) 
+    program_name = os.path.split(os.path.split(__file__)[0])[1] if base_name != "main.py" else os.path.splitext(base_name)[0] 
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(f"'{program_name}' program stopped.")
+
+
