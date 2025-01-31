@@ -15,7 +15,7 @@ This module will not work, or is meant to be, a standalone program. It is intend
 - Flexible URL input handling
 - Robust error management for failed conversions
 
-## Current Supported Mime Types
+## Planned Mime Types
 Source: https://developer.mozilla.org/en-US/docs/Web/HTTP/MIME_types/Common_types, accessed 1/20/2025
 
 | Extension | Kind of document | MIME Type |
@@ -97,7 +97,15 @@ Source: https://developer.mozilla.org/en-US/docs/Web/HTTP/MIME_types/Common_type
 
 ## Dependencies
 This module relies on the following dependencies:
-- TBD
+- multipledispatch
+- pyyaml
+- pytest
+- pytest-asyncio
+- pydantic
+- markitdown
+- openai
+- aiohttp
+- playwright
 
 ## Usage
 - N/A
