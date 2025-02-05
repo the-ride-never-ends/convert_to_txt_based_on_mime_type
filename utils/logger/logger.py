@@ -115,7 +115,7 @@ class Logger:
             message=message,
             level=level,
             lineno=lineno,
-            timestamp=time.time()
+            timestamp=time.asctime()
         )
         self.log_file.log_entries.append(entry)
 
