@@ -7,14 +7,14 @@ import re
 import sys
 import tempfile
 import time
-from typing import Any, Coroutine, IO, TypeAlias
+from typing import Any, Coroutine, IO, Optional, TypeAlias
 from urllib.parse import urlparse
 
 
 import aiohttp
+import duckdb
 import requests
 from markitdown import MarkItDown, FileConversionException, UnsupportedFormatException
-from pydantic import BaseModel, Field, HttpUrl, EmailStr
 from playwright.async_api import (
     Response as PlaywrightResponse,
     async_playwright, 
@@ -26,6 +26,12 @@ from playwright.async_api import (
     Playwright,
     PlaywrightContextManager,
 )
+from pydantic import BaseModel, Field, HttpUrl, EmailStr
+
+
+from pydantic_models.configs import Configs
+
+
 # from utils.shared.next_step import next_step
 # from utils.shared.sanitize_filename import sanitize_filename
 
@@ -48,10 +54,45 @@ def _count_number_of_camel_case_words(html: str) -> int:
     # Return the count of matches
     return len(matches)
 
-class Configs(BaseModel):
+
+
+# DocumentConverterResult: TypeAlias = Any
+
+"""
+Route the input to the appropriate converter based on its ending.
+
+Args:
+    input (str): The filename to be routed.
+
+Returns:
+    The mime-type of the file.
+"""
+
+class DocumentConverterResult(BaseModel):
+    title: Optional[str] = None
+    text_content: str = ""
+
+
+class MachineLearningModel:
     pass
 
-DocumentConverterResult: TypeAlias = Any
+
+class Converter:
+
+    def __init__(self, configs: Configs):
+        self.configs = configs
+        self.markitdown = MarkItDownAsync()
+
+    async def source(self) -> str:
+        pass
+
+    async def drain(self) -> str:
+        pass
+ 
+    async def convert(self, url: str) -> DocumentConverterResult:
+        pass
+
+
 
 
 class MarkItDownAsync(MarkItDown):
@@ -102,15 +143,21 @@ class MarkItDownAsync(MarkItDown):
             await self._browser.close()
 
     async def async_convert(self, 
-                      source: str | aiohttp.ClientResponse | Path | requests.Response | Page, 
+                      source: str | aiohttp.ClientResponse | Path | requests.Response, 
                       **kwargs: Any
                     ) -> DocumentConverterResult:
         """
         Args:
-            source: can be a string representing a path either as string pathlib path object or url, 
-                or a requests.response object
+            source: can be a string representing one of the following:
+                - a local path to a file, either as string or a pathlib.Path object
+                - a url string
+                - a requests.response object
+                - a aiohttp.ClientResponse object
             extension: specifies the file extension to use when interpreting the file. 
                 If None, infer from source (path, uri, content-type, etc.)
+
+        Returns
+           DocumentConverterResult: A pydantic model containing the result of converting a document to text.
         """
         # Local path or url
         if isinstance(source, str):
@@ -174,7 +221,6 @@ class MarkItDownAsync(MarkItDown):
                 await page.close()
         else:
             return None
-
 
     # TODO Make this more robust.
     def _figure_out_whether_we_need_to_render_this_url_with_playwright(self, html: str) -> bool:
@@ -313,6 +359,8 @@ class MarkItDownAsync(MarkItDown):
 logger = logging.getLogger(__name__)
 
 
+
+
 async def main():
 
     logger.info("Begin __main__")
@@ -320,8 +368,14 @@ async def main():
     # Load in the config file.
     config = Configs()
 
-    #mimetypes.guess_type(url)
+    # Get the files/URLs to process and put the paths to them into a duckdb database
 
+    # Divide the data based on their mime-type
+
+    # Assign the data 
+
+
+    #mimetypes.guess_type(url)
 
     logger.info("Insert program logic here...")
     logger.info("End __main__")

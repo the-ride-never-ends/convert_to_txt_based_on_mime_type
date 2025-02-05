@@ -7,3 +7,7 @@ markitdown
 openai
 aiohttp
 playwright
+pre-commit
+duckdb
+pandas
+networkx
