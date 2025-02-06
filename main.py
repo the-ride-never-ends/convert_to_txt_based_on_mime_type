@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import mimetypes
@@ -7,8 +8,9 @@ import re
 import sys
 import tempfile
 import time
-from typing import Any, Coroutine, IO, Optional, TypeAlias
+from typing import Any, Coroutine, IO, Iterable, Optional
 from urllib.parse import urlparse
+from uuid import UUID
 
 
 import aiohttp
@@ -30,15 +32,6 @@ from pydantic import BaseModel, Field, HttpUrl, EmailStr
 
 
 from pydantic_models.configs import Configs
-
-
-# from utils.shared.next_step import next_step
-# from utils.shared.sanitize_filename import sanitize_filename
-
-
-# from database.MySqlDatabase import MySqlDatabase
-# from config.config import *
-# from logger.logger import Logger
 
 
 def _count_number_of_camel_case_words(html: str) -> int:
@@ -107,15 +100,16 @@ class MarkItDownAsync(MarkItDown):
         self._aiohttp_session = None
         self._browser: Browser = None
         self._playwright_dom_manipulation_ruleset: dict[str, Coroutine | list[Coroutine]] = None
+        self._we_have_async: bool = None
 
         try: # Importing these should tell is whether or not we have async functionality.
             import playwright
             import aiohttp
-            we_have_async = True
+            self._we_have_async = True
         except:
-            we_have_async = False
+            self._we_have_async = False
 
-        if we_have_async:
+        if self._we_have_async:
 
             aiohttp_session: aiohttp.ClientSession = kwargs.get("aiohttp_session", None)
             self._aiohttp_session = aiohttp.ClientSession() if aiohttp_session is None else aiohttp_session
@@ -142,6 +136,10 @@ class MarkItDownAsync(MarkItDown):
         if self._browser is not None:
             await self._browser.close()
 
+    def raise_runtime_error_if_no_async(self):
+        if not self._we_have_async:
+            raise RuntimeError("Async functionality is not available. Please install the required dependencies.")
+
     async def async_convert(self, 
                       source: str | aiohttp.ClientResponse | Path | requests.Response, 
                       **kwargs: Any
@@ -159,6 +157,8 @@ class MarkItDownAsync(MarkItDown):
         Returns
            DocumentConverterResult: A pydantic model containing the result of converting a document to text.
         """
+        self.raise_runtime_error_if_no_async()
+
         # Local path or url
         if isinstance(source, str):
             if (
@@ -189,6 +189,8 @@ class MarkItDownAsync(MarkItDown):
     async def async_convert_url(
         self, url: str, **kwargs: Any
     ) -> DocumentConverterResult:
+        self.raise_runtime_error_if_no_async()
+
         # Send a HTTP request to the URL
         with self._aiohttp_session.get(url, stream=True) as response:
             response: aiohttp.ClientResponse
@@ -303,6 +305,7 @@ class MarkItDownAsync(MarkItDown):
     async def convert_playwright_response(self,
         response: PlaywrightResponse, **kwargs: Any
     ) -> DocumentConverterResult:
+        self.raise_runtime_error_if_no_async()
 
         extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
 
@@ -336,6 +339,7 @@ class MarkItDownAsync(MarkItDown):
     async def convert_aiohttp_response(
         self, response: aiohttp.ClientResponse, **kwargs: Any
     ) -> DocumentConverterResult:  # TODO fix kwargs type
+        self.raise_runtime_error_if_no_async()
 
         extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
 
@@ -356,9 +360,17 @@ class MarkItDownAsync(MarkItDown):
             self._clean_up(fh, response, temp_path, response)
         return result
 
-logger = logging.getLogger(__name__)
 
+from utils.logger.logger import Logger
+logger = Logger(__name__)
 
+def make_sha256_hash(data: Any) -> str:
+    return hashlib.sha256(str(data).encode())
+
+def make_hash_tree(*args: Iterable[Any]):
+    hashed_objects = [
+        make_sha256_hash(arg) for arg in args
+    ]
 
 
 async def main():
@@ -366,9 +378,27 @@ async def main():
     logger.info("Begin __main__")
 
     # Load in the config file.
-    config = Configs()
+    configs = Configs()
 
     # Get the files/URLs to process and put the paths to them into a duckdb database
+    configs.input_db = duckdb.connect('input.db')
+    configs.output_db = duckdb.connect('output.db')
+
+    configs.input_db.execute(
+        "CREATE TABLE IF NOT EXISTS input (file_path VARCHAR, uuid VARCHAR)"
+    )
+    file_paths = [
+        str(path) for path in configs.paths.INPUT_DIR.glob("**/*") 
+        if path.is_file()
+    ]
+
+    # Split the file_paths into chunks based on the number of workers
+    
+
+    for file_path in file_paths:
+        configs.input_db.execute(
+            "INSERT file_path, uuid INTO input VALUES (?), (?)", [file_path, ]
+        )
 
     # Divide the data based on their mime-type
 
@@ -379,6 +409,7 @@ async def main():
 
     logger.info("Insert program logic here...")
     logger.info("End __main__")
+
     sys.exit(0)
 
 

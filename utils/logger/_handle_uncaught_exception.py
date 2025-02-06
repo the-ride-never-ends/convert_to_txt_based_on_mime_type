@@ -1,18 +1,9 @@
-import os
 import sys
 import traceback
 
 
-from logger.logger import Logger
+from .logger import Logger
 logger = Logger("UNCAUGHT_EXCEPTION")
-
-
-# Define general folder for log files
-script_dir = os.path.dirname(os.path.realpath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(script_dir))
-PROGRAM_NAME = os.path.basename(PROJECT_ROOT)
-debug_log_folder = os.path.join(PROJECT_ROOT, "debug_logs")
-overflow_debug_folder = os.path.join(debug_log_folder, "overflow_debug_logs")
 
 
 def handle_uncaught_exception(exc_type, exc_value, exc_traceback):

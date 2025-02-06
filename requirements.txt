@@ -11,3 +11,4 @@ pre-commit
 duckdb
 pandas
 networkx
+pyarrow
