@@ -1,8 +1,10 @@
 #!/usr/bin/env python3 -m pytest
 
 import argparse
+from pathlib import Path
 import json
-from unittest.mock import patch
+import platform
+from unittest.mock import mock_open, patch
 
 
 import pytest
@@ -139,15 +141,13 @@ def mock_environment_vars():
     }
 
 
-##### TEST FUNCTIONS #####
-
+##### TEST BASIC FUNCTIONALITY #####
 
 def test_load_valid_config_file(valid_config_file):
     parser = ConfigParser()
     parser.configs_file_path = valid_config_file
     configs = parser.load_and_parse_configs_file()
     assert configs is not None
-
 
 def test_parse_minimal_command_line(command_line_args):
     parser = ConfigParser()
@@ -162,9 +162,94 @@ def test_parse_minimal_command_line(command_line_args):
         assert configs['input_folder'] == 'cli_input'
         assert configs['output_folder'] == 'cli_output'
 
-
 def test_save_config(tmp_path, valid_config_dict):
     parser = ConfigParser()
     parser.configs_file_path = tmp_path / "configs.yaml"
     parser.save_current_config_settings_to_configs_file(valid_config_dict)
     assert parser.configs_file_path.exists()
+
+#### TEST ERROR HANDLING #####
+
+#### load_and_parse_configs_file() ####
+
+def test_config_file_not_found(tmp_path):
+    parser = ConfigParser()
+    parser.configs_file_path = tmp_path / "non_existent.yaml"
+    with pytest.raises(FileNotFoundError):
+        parser.load_and_parse_configs_file()
+
+def test_empty_config_file(tmp_path):
+    config_path = tmp_path / "empty.yaml"
+    config_path.touch()  # Creates empty file
+    parser = ConfigParser()
+    parser.configs_file_path = config_path
+    with pytest.raises(ValueError, match="Config file .* is empty or invalid YAML"):
+        parser.load_and_parse_configs_file()
+
+# TODO Figure out a way to reliably test permission errors. They're such a bitch to set up!
+# def test_permission_denied_config_file(tmp_path):
+#     mock = mock_open()
+#     mock.side_effect = PermissionError("Permission denied")
+    
+#     with patch('builtins.open', mock):
+#         config_path = tmp_path / "dummy.yaml"
+#         parser = ConfigParser()
+#         parser.configs_file_path = config_path
+#         with pytest.raises(PermissionError, match="Permission denied"):
+#             parser.load_and_parse_configs_file()
+
+def test_config_file_malformed(tmp_path):
+    config_path = tmp_path / "configs.yaml"
+    config_path.write_text("This is not valid YAML: :")
+    parser = ConfigParser()
+    parser.configs_file_path = config_path
+    with pytest.raises(yaml.YAMLError):
+        parser.load_and_parse_configs_file()
+
+
+def test_invalid_yaml_config_file(tmp_path):
+    config_path = tmp_path / "invalid.yaml"
+    config_path.write_text("invalid: yaml: content: :")  # Invalid YAML syntax
+    parser = ConfigParser()
+    parser.configs_file_path = config_path
+    with pytest.raises(yaml.YAMLError, match="Invalid YAML format in config file"):
+        parser.load_and_parse_configs_file()
+
+
+def test_config_file_invalid_types(tmp_path):
+    config_path = tmp_path / "invalid_types.yaml"
+    test_cases = [
+        ("just a string", "string instead of mapping"),
+        ("42", "number instead of mapping"),
+        ("[1, 2, 3]", "list instead of mapping"),
+        ("true", "boolean instead of mapping")
+    ]
+    
+    parser = ConfigParser()
+    parser.configs_file_path = config_path
+    
+    for yaml_content, case_desc in test_cases:
+        config_path.write_text(yaml_content)
+        with pytest.raises(ValueError, match="Invalid configuration structure"), \
+             pytest.raises(TypeError, match=".*mapping"):
+            parser.load_and_parse_configs_file()
+
+
+# NOTE Not necessary, as the configs.yaml file is hardcoded to be named 'configs.yaml'
+# The program will prompt the user to make another if it can't find it.
+# def test_multiple_config_files(tmp_path):
+#     config_path1 = tmp_path / "configs1.yaml"
+#     config_path2 = tmp_path / "configs2.yaml"
+#     config_path1.touch()
+#     config_path2.touch()
+    
+#     with patch('os.getcwd', return_value=str(tmp_path)):
+#         parser = ConfigParser()
+#         with pytest.raises(ValueError, match="Multiple config files found"):
+#             parser.load_and_parse_configs_file()
+
+#### parse_command_line() ####
+
+
+#### save_current_config_settings_to_configs_file() #### 
+

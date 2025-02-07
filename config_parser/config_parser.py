@@ -11,8 +11,6 @@ import yaml
 
 
 #from pydantic_models.configs import Configs
-
-
 class Configs(BaseModel):
     input_folder: str = "input"
     output_folder: str = "output"
@@ -34,6 +32,9 @@ class Configs(BaseModel):
 class ConfigParser:
     """
     Load, save, and parse external commands, from a config file, command line, or both.
+    NOTE: The configuration file is hard-coded to be named 'config.yaml'. 
+        If renamed or deleted, the program will attempt to create another using hard-coded default values.
+        This includes mock-values for API keys and URLs.
 
     External Commands:
         input_folder (str): Path to the folder containing the files to be converted.
@@ -95,13 +96,11 @@ class ConfigParser:
          - Configuration inheritance and override rules
          - Default value handling strategy
         """
-        self.configs_file_path: Path = None
-
         self._ROOT_DIR = Path(__file__).parent.parent
         if not self._ROOT_DIR.exists():
             raise FileNotFoundError(f"Cannot find the root directory:{self._ROOT_DIR}")
 
-        self.configs_file_path = self._ROOT_DIR / "configs.yaml"
+        self.configs_file_path: Path = self._ROOT_DIR / "configs.yaml"
 
         if not self.configs_file_path.exists():
             make_config_file = input("""
@@ -109,6 +108,8 @@ class ConfigParser:
                 """)
             if make_config_file.lower() == "y":
                 self.save_current_config_settings_to_configs_file(Configs())
+            else:
+                raise FileNotFoundError(f"Config file not found at {self.configs_file_path}")
 
 
     def load_and_parse_configs_file(self) -> Configs:
@@ -164,10 +165,27 @@ class ConfigParser:
                 - Arguments containing sensitive data exposed in process list
                 - Command injection vulnerabilities in argument parsing.
         """
-        with open(self.configs_file_path, 'r', encoding='utf-8') as file:
-            configs_dict = yaml.safe_load(file)
+        if not self.configs_file_path.exists():
+            raise FileNotFoundError(f"Config file not found at {self.configs_file_path}")
 
-        return Configs(**configs_dict)
+        try:
+            with open(self.configs_file_path, 'r', encoding='utf-8') as file:
+                configs_dict = yaml.safe_load(file)
+
+        except PermissionError:
+            raise PermissionError(f"Permission denied when accessing config file at {self.configs_file_path}")
+        except IOError as e:
+            raise PermissionError(f"Unable to read config file at {self.configs_file_path}: {e}")
+        except yaml.YAMLError:
+            raise yaml.YAMLError(f"Invalid YAML format in config file at {self.configs_file_path}")
+
+        if configs_dict is None:
+            raise ValueError(f"Config file at {self.configs_file_path} is empty or invalid YAML")
+
+        try:
+            return Configs(**configs_dict)
+        except TypeError as e:
+            raise ValueError(f"Invalid configuration structure: {e}")
 
 
     def check_if_the_program_was_started_from_command_line() -> bool:

@@ -14,3 +14,4 @@ networkx
 pyarrow
 psutil
 azure-ai-documentintelligence
+pywin32
