@@ -164,7 +164,7 @@ class ConfigParser:
                 - Arguments containing sensitive data exposed in process list
                 - Command injection vulnerabilities in argument parsing.
         """
-        with open(self._CONFIG_FILE_PATH, 'r', encoding='utf-8') as file:
+        with open(self.configs_file_path, 'r', encoding='utf-8') as file:
             configs_dict = yaml.safe_load(file)
 
         return Configs(**configs_dict)

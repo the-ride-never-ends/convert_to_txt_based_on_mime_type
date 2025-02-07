@@ -144,7 +144,7 @@ def mock_environment_vars():
 
 def test_load_valid_config_file(valid_config_file):
     parser = ConfigParser()
-    parser.configs_file = valid_config_file
+    parser.configs_file_path = valid_config_file
     configs = parser.load_and_parse_configs_file()
     assert configs is not None
 
@@ -152,15 +152,15 @@ def test_load_valid_config_file(valid_config_file):
 def test_parse_minimal_command_line(command_line_args):
     parser = ConfigParser()
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('--llm-api-key', required=True)
-    arg_parser.add_argument('--llm-api-url', required=True)
+    arg_parser.add_argument('--input-folder', required=True)
+    arg_parser.add_argument('--output-folder', required=True)
     args = arg_parser.parse_args(command_line_args['minimal'])
 
     with patch.object(parser, 'parse_command_line', return_value=vars(args)):
         configs = parser.parse_command_line(args)
         assert configs is not None
-        assert configs['llm_api_key'] == 'cli_test_key'
-        assert configs['llm_api_url'] == 'https://cli.example.com'
+        assert configs['input_folder'] == 'cli_input'
+        assert configs['output_folder'] == 'cli_output'
 
 
 def test_save_config(tmp_path, valid_config_dict):
