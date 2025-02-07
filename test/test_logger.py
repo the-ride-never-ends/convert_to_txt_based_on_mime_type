@@ -1,7 +1,7 @@
 import pytest
 
 
-from utils.logger.logger import Logger, LogEntry, LogFile
+from ..logger.logger import Logger #, LogEntry, LogFile
 
 
 @pytest.fixture

@@ -361,7 +361,7 @@ class MarkItDownAsync(MarkItDown):
         return result
 
 
-from utils.logger.logger import Logger
+from .logger.logger import Logger
 logger = Logger(__name__)
 
 def make_sha256_hash(data: Any) -> str:
@@ -372,42 +372,47 @@ def make_hash_tree(*args: Iterable[Any]):
         make_sha256_hash(arg) for arg in args
     ]
 
+from duckdb.typing import VARCHAR
+
+from config_parser.config_parser import ConfigParser
 
 async def main():
 
     logger.info("Begin __main__")
 
-    # Load in the config file.
-    configs = Configs()
+    # # Load in the config file.
+    # configs = Configs()
 
-    # Get the files/URLs to process and put the paths to them into a duckdb database
-    configs.input_db = duckdb.connect('input.db')
-    configs.output_db = duckdb.connect('output.db')
+    # # Get the files/URLs to process and put the paths to them into a duckdb database
+    # configs.input_db = duckdb.connect('input.db')
+    # configs.output_db = duckdb.connect('output.db')
 
-    configs.input_db.execute(
-        "CREATE TABLE IF NOT EXISTS input (file_path VARCHAR, uuid VARCHAR)"
-    )
-    file_paths = [
-        str(path) for path in configs.paths.INPUT_DIR.glob("**/*") 
-        if path.is_file()
-    ]
+    # configs.input_db.create_function(
+    #     'make_sha256_hash', make_sha256_hash, 'data', return_type=VARCHAR
+    # )
 
-    # Split the file_paths into chunks based on the number of workers
-    
+    # configs.input_db.execute(
+    #     "CREATE TABLE IF NOT EXISTS input (file_path VARCHAR, uuid VARCHAR)"
+    # )
+    # file_paths = [
+    #     str(path) for path in configs.paths.INPUT_DIR.glob("**/*") 
+    #     if path.is_file()
+    # ]
 
-    for file_path in file_paths:
-        configs.input_db.execute(
-            "INSERT file_path, uuid INTO input VALUES (?), (?)", [file_path, ]
-        )
+    # # Split the file_paths into chunks based on the number of workers
+    # for file_path in file_paths:
+    #     configs.input_db.execute(
+    #         "INSERT file_path, uuid INTO input VALUES (?), (make_sha256_hash(?)", [file_path, file_path]
+    #     )
 
-    # Divide the data based on their mime-type
+    # # Divide the data based on their mime-type
 
     # Assign the data 
 
 
     #mimetypes.guess_type(url)
 
-    logger.info("Insert program logic here...")
+    #logger.info("Insert program logic here...")
     logger.info("End __main__")
 
     sys.exit(0)
@@ -421,5 +426,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print(f"'{program_name}' program stopped.")
-
-

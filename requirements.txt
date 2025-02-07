@@ -12,3 +12,5 @@ duckdb
 pandas
 networkx
 pyarrow
+psutil
+azure-ai-documentintelligence

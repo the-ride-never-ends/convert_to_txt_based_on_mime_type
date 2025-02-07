@@ -38,9 +38,19 @@ convert_to_txt_based_on_mime_type shall be:
 - Handle files up to 100MB in size.
 - Robust error handling
 - Potential to expand to batch processing and concurrent operations.
-- Modular design to allow for easy expansion to new formats.
+- Easily expandable to allow for additional file formats.
 - Open-source libraries only. No proprietary software other than via API.
-- No external dependencies. All libraries must be included in the project.
+
+
+## Solution Strategy
+| Quality Goal | Scenario | Solution  Approach | Link to Details |
+|--------------|----------|--------------------|-----------------|
+| 95% successful conversions | 
+| No memory leaks |  |  |  |
+| Under 1% crash rate |  |  |  |
+| Correct markdown syntax in output |  |  |  |
+| Error logging and recovery |  |  |  |
+
 
 ## System Context
 
@@ -53,8 +63,8 @@ flowchart TB
         DV["Developers"]
     end
 
-    subgraph FileToMark["FileToMark Converter System"]
-        FC["FileToMark Core"]
+    subgraph FileToMark["convert_to_txt_based_on_mime_type Converter System"]
+        FC["convert_to_txt_based_on_mime_type Core"]
         ML["MarkItDown Library"]
     end
 
@@ -73,6 +83,7 @@ flowchart TB
     FC --> |Produces|OF
     FC --> |Produces|LOG
 ```
+
 | Node | Description |
 |----------|-------------|
 | TW       | Technical Writers who need to convert files to markdown for documentation purposes. |
@@ -81,15 +92,9 @@ flowchart TB
 | FC       | FileToMark Core, the main component of the system that handles the conversion process. |
 | ML       | MarkItDown Library, a library used by the FileToMark Core to perform the actual conversion. |
 
-
-
 ```mermaid
 flowchart TB
 ```
-
-
-
-
 
 ### 2. Technical Context
 ```mermaid
@@ -108,7 +113,7 @@ flowchart TB
     end
 
     subgraph Program
-       FC["FileToMark Core"]
+       FC["convert_to_txt_based_on_mime_type Core"]
        ML["MarkItDown Library"]
     end
 
@@ -133,24 +138,194 @@ flowchart TB
     FC <--> |Byte Stream| ML
 ```
 
-## Solution Strategy
-| Quality Goal | Scenario | Solution  Approach | Link to Details |
-|--------------|----------|--------------------|-----------------|
-| 95% successful conversions | 
-
-
-| **Core Purpose**              | Convert various file types into well-formatted markdown while maintaining maximum stability                                                                                                                                                 |
-| **Primary Features**          | • File type detection and validation<br>• Basic conversion of TXT, HTML, PDF, DOC(X)<br>• Stream-based processing for memory efficiency<br>• Error logging and recovery<br>• Progress monitoring                                            |
-| **Technical Architecture**    | • Functional core for conversion logic<br>• Reactive streams for file handling<br>• Pure functions for individual format processors<br>• Immutable data structures for content manipulation<br>• Error monad for predictable error handling |
-| **MVP Limitations**           | • Limited to files under 100MB<br>• Basic styling conversion only<br>• No batch processing<br>• No custom markdown templates<br>• Single concurrent conversion only                                                                         |
-| **Success Metrics**           | • 95% successful conversions<br>• No memory leaks<br>• Under 1% crash rate<br>• Correct markdown syntax in output                                                                                                                           |
-| **Target Users**              | • Technical writers<br>• Documentation specialists<br>• Content managers<br>• Developers needing documentation tools                                                                                                                        |
-| **Initial Supported Formats** | • Anything currently supported by the [MarkItDown](https://github.com/microsoft/markitdown) library                                                                                                                                         |
-| **Error Handling**            | • Graceful failure recovery<br>• Detailed error logging<br>• Partial conversion recovery<br>• Input validation feedback<br>• Resource cleanup on failure                                                                                    |
-| **Resource Management**       | • Streaming for large files<br>• Automatic garbage collection<br>• Resource usage monitoring<br>• Memory bounds checking<br>• File handle management                                                                                        |
-
-
 ## Building Block View
+
+User Arguments:
+| Argument | Description | Default |
+|----------|-------------|-------------|
+| input_folder | Path to the folder containing the files to be converted. | /inputs |
+| output_folder | Path to the folder where the converted files will be saved. | /outputs |
+| max_memory | Maximum amount of memory in Megabyes the program can use at any one time. | 1024 |
+| conversion_timeout | Maximum amount of time in seconds an API-bounded conversion can run before it is terminated. | 30 |
+| log_level | Level of logging to be used. | INFO |
+| max_connections_per_api | Maximum number of concurrent API connections the program can have at any one time. | 3 |
+| max_threads | Maximum number of threads to be used for processing the program can use at any one time. | 4 |
+| batch_size | Number of files to be processed in a single batch. | 1024 |
+| llm_api_key | API key for the LLM API. | 123456 |
+| llm_api_url | URL for the LLM API. | www.example.com |
+| use_docintel | Use Document Intelligence to extract text instead of offline conversion. Requires a valid Document Intelligence Endpoint | False |
+| docintel_endpoint | Document Intelligence Endpoint. Required if using Document Intelligence | www.example2.com |
+| version | (CLI only) Version of the program. | 0.1.0 |
+| help | (CLI only) Show help message and exit. | False |
+| pool_refresh_rate | Refresh rate in seconds for refreshing resources in the Pools. | 60 |
+| pool_health_check_rate | Health check rate in seconds for checking resources in the Pools. | 30 |
+
+```mermaid
+flowchart TB
+
+    subgraph converter_system["Converter System"]
+        CoreResourceManager
+        CoreErrorManager
+        FilePathQueue
+        subgraph core["Core"]
+            FileLoader
+            FileConverter
+            FileSaver
+        end
+    end
+
+    subgraph inputs["Inputs"]
+        subgraph ext["Services"]
+            system
+            llm_service
+        end
+        subgraph args_inputs["Arguments"]
+            user
+            config_yaml
+        end
+        subgraph files["Files"]
+            files_on_disk
+        end
+    end
+
+    ConfigParser
+
+    subgraph utils["Utilities"]
+        PathManager
+        LlmApi
+        ExternalResourceManager
+    end
+
+    subgraph pools["Pools"]
+       direction TB
+       PoolHealthMonitor
+       PoolResourceManager
+       subgraph non_system_resources["Non-System Resources"]
+            path_pool
+            func_pool
+            llm_api_connections
+       end
+       subgraph system_resources["System Resources"]
+            RAM
+            thread_pool
+            VRAM
+        end
+    end
+
+    Logger
+
+    subgraph outputs["Outputs"]
+        display
+        log
+        md_files
+        md_files_sqlite
+    end
+
+    args_inputs --> |Args| ConfigParser
+    ConfigParser --> |Configs| converter_system
+    ConfigParser --> |Configs| utils
+    ConfigParser --> |Configs| pools
+
+    system --> |System Resources| ExternalResourceManager
+    ExternalResourceManager ==> |Resources| PoolResourceManager
+    llm_service --> |LLM API Connections| LlmApi
+
+    utils --> |Log Info| Logger
+    converter_system --> |Log Info| Logger
+    pools --> |Log Info| Logger
+    Logger --> |Log Entries| log
+    Logger --> |Log Entries| display
+
+    files ==> |File Paths| PathManager
+    PathManager ==> |File Paths & Metadata| ExternalResourceManager
+
+    files ==> |File Data| FileLoader
+
+    LlmApi --> |LLM API Connections| ExternalResourceManager
+
+    FileLoader ==> |Loaded Files| FileConverter
+    FileConverter ==> |Converted Files| FileSaver
+    core --> |Resource Release Signal| CoreResourceManager
+    core --> |Errored Processes| CoreErrorManager
+    CoreErrorManager --> |Error Logs| Logger
+    CoreErrorManager --> |Resource Release Signal| CoreResourceManager
+ 
+    CoreResourceManager ==> |File Paths & Metadata| FilePathQueue
+    FilePathQueue ==> |File Paths & Metadata| FileLoader
+
+    FileSaver --> |Markdown Files| md_files_sqlite
+    FileSaver --> |Markdown Files| md_files
+
+    PoolResourceManager <==> |Non-System Resources| non_system_resources
+    PoolResourceManager <--> |System Resources| system_resources
+    PoolResourceManager <==> |Resources| CoreResourceManager
+    PoolHealthMonitor --> |Resource Re-Initialize Signal| PoolResourceManager
+    PoolHealthMonitor <---> |Resource Health Status| system_resources
+    PoolHealthMonitor <---> |Resource Health Status| non_system_resources
+
+    CoreResourceManager <---> |Core Resources| core
+
+    %% Inputs %%
+    user["User (via CLI)"]
+    system["System Resources"]
+    llm_service["LLM API Service"]
+    config_yaml@{ shape: doc, label: "Config File (.yaml)" }
+    files_on_disk@{ shape: lin-cyl, label: "Files (on Disk)" }
+
+    %% Outputs %%
+    md_files@{ shape: lin-cyl, label: "Markdown Files (on Disk)" }
+    md_files_sqlite@{ shape: lin-cyl, label: "Markdown Files (SQL Database)" }
+    display@{ shape: curv-trap, label: "User Display" }
+    log@{ shape: doc, label: "Log File (.log)" }
+
+
+    %% Converter System %%
+    PathManager[File Paths Manager]
+    CoreErrorManager[Core Error Manager]
+    CoreResourceManager[Core Resource Manager]
+    FilePathQueue[File Path Queue]
+
+    %% Core %%
+    FileConverter@{ shape: procs, label: "File Converters"}
+    FileLoader@{ shape: procs, label: "File Loaders"}
+    FileSaver@{ shape: procs, label: "File Savers"}
+
+    %% Utilities %%
+    Logger[Logger]
+    ConfigParser[Config Parser]
+    LlmApi["LLM API"]
+    ExternalResourceManager[External Resource Manager]
+
+    %% Pools %%
+    PoolHealthMonitor["Pool Health Monitor"]
+    PoolResourceManager["Pool Resource Manager"]
+    llm_api_connections[API Connections Pool]
+    RAM[System Memory Pool]
+    VRAM[GPU Memory Pool]
+    path_pool[File Path Pool]
+    thread_pool[Thread Pool]
+    func_pool[Core Functions Pool]
+
+```
+
+```mermaid
+flowchart TB
+
+
+```
+
+Rationale:
+- 
+
+
+
+
+| Building Blocks | Description | Techniques |
+|-----------------|-------------|------------|
+| FileLoader | | Lazy Loading |
+
+
+
 
 ## Runtime View
 
