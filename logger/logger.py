@@ -97,22 +97,6 @@ class Logger:
             off: Turns off the logger for this message. Logs will still be saved to the log file
         """
         if not off:
-
-            # Get the caller's line number
-            # frame = sys._getframe(2)  # Adjust frame level to get the correct caller
-            # lineno = frame.f_lineno
-
-            # # Add structured log entry
-            # level_mapping = {
-            #     self.logger.info: logging.INFO,
-            #     self.logger.debug: logging.DEBUG,
-            #     self.logger.warning: logging.WARNING,
-            #     self.logger.error: logging.ERROR,
-            #     self.logger.critical: logging.CRITICAL
-            # }
-            # NOTE: We do not save the message in pretty format to make it easier to parse the log file.
-            # self._add_log_entry(message, level_mapping[method], lineno)
-
             if not f: # We move up the stack by 1 because it's a nested method.
                 method(message, stacklevel=self.stacklevel+1)
             else:

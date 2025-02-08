@@ -1,10 +1,8 @@
-
 from datetime import datetime
-import os
 from pathlib import Path
 import logging
 import threading
-import time
+
 
 from pydantic import BaseModel, Field
 
@@ -38,7 +36,6 @@ class LogEntry(BaseModel):
     lineno: int = Field(..., description="The line number where the log entry was created")
     timestamp: str = Field(..., description="The timestamp of the log entry")
 
-
     def __init__(self, **data):
         super().__init__(**data)
 
@@ -46,7 +43,6 @@ class LogEntry(BaseModel):
 class LogFile(BaseModel):
     entries: list[LogEntry] = Field(default_factory=list, description="The log entries in the log file")
 
-import sys
 
 class PydanticFileHandler(logging.FileHandler):
     """

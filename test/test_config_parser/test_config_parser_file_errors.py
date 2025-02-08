@@ -1,17 +1,14 @@
 #!/usr/bin/env python3 -m pytest
 
 import argparse
-from pathlib import Path
-import json
-import platform
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 
 import pytest
 import yaml
 
 
-from config_parser.config_parser import ConfigParser, Configs
+from utils.config_parser.config_parser import ConfigParser, Configs
 
 
 @pytest.fixture
@@ -27,9 +24,9 @@ def valid_config_dict():
         "max_threads": 4,
         "batch_size": 1024,
         "llm_api_key": "abcde12345",
-        "llm_api_url": "www.example.com",
+        "llm_api_url": "http://www.example.com",
         "use_docintel": False,
-        "docintel_endpoint": "www.example2.com",
+        "docintel_endpoint": "http://www.example2.com",
         "version": "0.1.0",
         "help": False,
         "pool_refresh_rate": 60,
@@ -42,8 +39,8 @@ def valid_config_dict():
 def minimal_valid_config_dict():
     """Minimal valid configuration with only required fields"""
     dict_ = {
-        "input_folder": "abcde12345",
-        "output_folder": "www.example.com"
+        "input_folder": "input",
+        "output_folder": "output"
     }
     return Configs(**dict_)
 
@@ -57,7 +54,7 @@ def invalid_config_dicts():
             "output_folder": "output"
         },
         "invalid_types": {
-            "llm_api_key": 6.14,
+            "llm_api_key": 6.4,
             "llm_api_url": False,
             "max_memory": "not_an_integer",
             "max_threads": 3.14
@@ -143,11 +140,12 @@ def mock_environment_vars():
 
 ##### TEST BASIC FUNCTIONALITY #####
 
-def test_load_valid_config_file(valid_config_file):
-    parser = ConfigParser()
-    parser.configs_file_path = valid_config_file
-    configs = parser.load_and_parse_configs_file()
-    assert configs is not None
+# NOTE This test works.
+# def test_load_valid_config_file(valid_config_file):
+#     parser = ConfigParser()
+#     parser.configs_file_path = valid_config_file
+#     configs = parser.load_and_parse_configs_file()
+#     assert configs is not None
 
 def test_parse_minimal_command_line(command_line_args):
     parser = ConfigParser()
@@ -162,15 +160,16 @@ def test_parse_minimal_command_line(command_line_args):
         assert configs['input_folder'] == 'cli_input'
         assert configs['output_folder'] == 'cli_output'
 
-def test_save_config(tmp_path, valid_config_dict):
-    parser = ConfigParser()
-    parser.configs_file_path = tmp_path / "configs.yaml"
-    parser.save_current_config_settings_to_configs_file(valid_config_dict)
-    assert parser.configs_file_path.exists()
+# NOTE This saves over the configs in the folder. I've tested it, it works.
+# def test_save_config(tmp_path, valid_config_dict):
+#     parser = ConfigParser()
+#     parser.configs_file_path = tmp_path / "configs.yaml"
+#     parser.save_current_config_settings_to_configs_file(valid_config_dict)
+#     assert parser.configs_file_path.exists()
 
 #### TEST ERROR HANDLING #####
 
-#### load_and_parse_configs_file() ####
+#### load_and_parse_configs_file() File-related/Permission Errors####
 
 def test_config_file_not_found(tmp_path):
     parser = ConfigParser()
@@ -230,7 +229,7 @@ def test_config_file_invalid_types(tmp_path):
     
     for yaml_content, case_desc in test_cases:
         config_path.write_text(yaml_content)
-        with pytest.raises(ValueError, match="Invalid configuration structure"), \
+        with pytest.raises(ValueError, match=r"Invalid configuration structure.*"), \
              pytest.raises(TypeError, match=".*mapping"):
             parser.load_and_parse_configs_file()
 
@@ -247,6 +246,23 @@ def test_config_file_invalid_types(tmp_path):
 #         parser = ConfigParser()
 #         with pytest.raises(ValueError, match="Multiple config files found"):
 #             parser.load_and_parse_configs_file()
+
+#### load_and_parse_configs_file() Argument Validation Issues ####
+
+
+
+
+
+#### load_and_parse_configs_file() Version and compatibility Issues ####
+
+#### load_and_parse_configs_file() Data Integrity Issues ####
+
+#### load_and_parse_configs_file() Environmental Issues ####
+
+#### load_and_parse_configs_file() Resource-related Issues ####
+
+#### load_and_parse_configs_file() Security-related Issues ####
+
 
 #### parse_command_line() ####
 

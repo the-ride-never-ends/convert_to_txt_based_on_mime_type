@@ -6,9 +6,9 @@ private_config.yaml
 logs/*
 !logs/_logs_go_here.txt
 input/*
-!input/_input_goes_here.txt
+!input/_input_files_go_here.txt
 output/*
-!output/_output_goes_here.txt
+!output/_output_files_go_here.txt
 
 docs/
 
@@ -151,3 +151,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+
+# Pytest
+pytest.ini
+.pytest_cache/
+pytest-*.xml
+pytest-*/
