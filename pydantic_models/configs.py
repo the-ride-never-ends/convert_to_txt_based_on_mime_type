@@ -7,7 +7,7 @@ from __about__ import __version__
 from enum import Enum
 import os
 from pathlib import Path
-from typing import Self
+from typing import Optional, Self
 
 
 from duckdb import DuckDBPyConnection
@@ -18,6 +18,7 @@ from pydantic import (
     PrivateAttr,
 )
 
+from logger.logger import Logger
 
 from pydantic_models.playwright.proxy_launch_configs import ProxyLaunchConfigs
 from pydantic_models.playwright.browser_launch_configs import BrowserLaunchConfigs
@@ -105,8 +106,9 @@ class Configs(BaseModel):
     pool_health_check_rate: int = Field(default=30, ge=1, le=1800)  # Between 1 second and 30 minutes
     print_configs_on_startup: bool = Field(default=False)
 
-    _can_use_llm = PrivateAttr(default=True)
-    _can_use_docintel = PrivateAttr(default=True)
+    _logger: Logger = PrivateAttr(default=None)
+    _can_use_llm: bool = PrivateAttr(default=True)
+    _can_use_docintel: bool = PrivateAttr(default=True)
 
     def __init__(self, **data):
 
@@ -165,3 +167,10 @@ class Configs(BaseModel):
     def can_use_docintel(self) -> bool:
         return self._can_use_docintel
 
+    @property
+    def logger(self) -> Logger:
+        return self._logger
+
+    @logger.setter
+    def logger(self, logger: Logger) -> None:
+        self._logger = logger

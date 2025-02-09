@@ -192,7 +192,8 @@ flowchart TB
 
     subgraph utils["Utilities"]
         PathManager
-        LlmApi
+        LlmApiManager
+        SystemResourceManager
         ExternalResourceManager
     end
 
@@ -226,28 +227,35 @@ flowchart TB
     ConfigParser --> |Configs| utils
     ConfigParser --> |Configs| pools
 
-    system --> |System Resources| ExternalResourceManager
-    ExternalResourceManager ==> |Resources| PoolResourceManager
-    llm_service --> |LLM API Connections| LlmApi
+    
+    system <--> |System Resources| SystemResourceManager
+    llm_service <--> |LLM API Connections| LlmApiManager
 
-    utils --> |Log Info| Logger
-    converter_system --> |Log Info| Logger
-    pools --> |Log Info| Logger
-    Logger --> |Log Entries| log
-    Logger --> |Log Entries| display
+    SystemResourceManager --> |System Resources| ExternalResourceManager
+    LlmApiManager --> |LLM API Connections| ExternalResourceManager
+    PathManager ==> |File Paths & Metadata| ExternalResourceManager
+    
+
 
     files ==> |File Paths| PathManager
-    PathManager ==> |File Paths & Metadata| ExternalResourceManager
-
     files ==> |File Data| FileLoader
 
-    LlmApi --> |LLM API Connections| ExternalResourceManager
+    
+    ExternalResourceManager ==> |Resources| PoolResourceManager
+
+    PoolResourceManager <==> |Non-System Resources| non_system_resources
+    PoolResourceManager <--> |System Resources| system_resources
+    PoolResourceManager <==> |Resources| CoreResourceManager
+    PoolHealthMonitor --> |Resource Re-Initialize Signal| PoolResourceManager
+    PoolHealthMonitor <---> |Resource Health Status| system_resources
+    PoolHealthMonitor <---> |Resource Health Status| non_system_resources
+
 
     FileLoader ==> |Loaded Files| FileConverter
     FileConverter ==> |Converted Files| FileSaver
     core --> |Resource Release Signal| CoreResourceManager
     core --> |Errored Processes| CoreErrorManager
-    CoreErrorManager --> |Error Logs| Logger
+
     CoreErrorManager --> |Resource Release Signal| CoreResourceManager
  
     CoreResourceManager ==> |File Paths & Metadata| FilePathQueue
@@ -256,12 +264,13 @@ flowchart TB
     FileSaver --> |Markdown Files| md_files_sqlite
     FileSaver --> |Markdown Files| md_files
 
-    PoolResourceManager <==> |Non-System Resources| non_system_resources
-    PoolResourceManager <--> |System Resources| system_resources
-    PoolResourceManager <==> |Resources| CoreResourceManager
-    PoolHealthMonitor --> |Resource Re-Initialize Signal| PoolResourceManager
-    PoolHealthMonitor <---> |Resource Health Status| system_resources
-    PoolHealthMonitor <---> |Resource Health Status| non_system_resources
+    CoreErrorManager --> |Error Logs| Logger
+    utils --> |Log Info| Logger
+    converter_system --> |Log Info| Logger
+    pools --> |Log Info| Logger
+    Logger --> |Log Entries| log
+    Logger --> |Log Entries| display
+
 
     CoreResourceManager <---> |Core Resources| core
 
@@ -276,7 +285,7 @@ flowchart TB
     md_files@{ shape: lin-cyl, label: "Markdown Files (on Disk)" }
     md_files_sqlite@{ shape: lin-cyl, label: "Markdown Files (SQL Database)" }
     display@{ shape: curv-trap, label: "User Display" }
-    log@{ shape: doc, label: "Log File (.log)" }
+    log@{ shape: docs, label: "Log File(s) (.log)" }
 
 
     %% Converter System %%
@@ -291,9 +300,10 @@ flowchart TB
     FileSaver@{ shape: procs, label: "File Savers"}
 
     %% Utilities %%
-    Logger[Logger]
+    Logger@{ shape: procs, label: "Logger(s)"}
     ConfigParser[Config Parser]
-    LlmApi["LLM API"]
+    LlmApiManager["LLM API"]
+    SystemResourceManager[System Resource Manager]
     ExternalResourceManager[External Resource Manager]
 
     %% Pools %%

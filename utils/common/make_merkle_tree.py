@@ -3,7 +3,7 @@ from typing import Any
 import hashlib
 
 class Node:
-    def __init__(self, left, right, value: str, content: Any, is_copied=False) -> None:
+    def __init__(self, left, right, value: str, content: Any, is_copied: bool = False) -> None:
         self.left: Node = left
         self.right: Node = right
         self.value = value
