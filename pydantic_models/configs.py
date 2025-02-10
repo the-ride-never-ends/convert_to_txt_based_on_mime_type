@@ -30,7 +30,7 @@ from utils.config_parser._make_dict_keys_and_string_values_lower_case_and_strip_
 from utils.config_parser._check_for_whitespace_in_specific_strings import _check_for_whitespace_in_specific_strings
 
 
-class Paths():
+class Paths(Path, Enum):
     PROJECT_ROOT: Path = Path(os.getcwd())
     INPUT_DIR: Path = PROJECT_ROOT / "input"
     OUTPUT_DIR: Path = PROJECT_ROOT / "output"

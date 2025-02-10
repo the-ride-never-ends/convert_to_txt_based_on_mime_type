@@ -210,6 +210,7 @@ flowchart TB
             RAM
             thread_pool
             VRAM
+            disk_pool
         end
     end
 
@@ -234,13 +235,10 @@ flowchart TB
     SystemResourceManager --> |System Resources| ExternalResourceManager
     LlmApiManager --> |LLM API Connections| ExternalResourceManager
     PathManager ==> |File Paths & Metadata| ExternalResourceManager
-    
-
 
     files ==> |File Paths| PathManager
     files ==> |File Data| FileLoader
 
-    
     ExternalResourceManager ==> |Resources| PoolResourceManager
 
     PoolResourceManager <==> |Non-System Resources| non_system_resources
@@ -315,6 +313,7 @@ flowchart TB
     path_pool[File Path Pool]
     thread_pool[Thread Pool]
     func_pool[Core Functions Pool]
+    disk_pool[Disk Usage Pool]
 
 ```
 
@@ -332,8 +331,8 @@ Rationale:
 
 | Building Blocks | Description | Techniques |
 |-----------------|-------------|------------|
-| FileLoader | | Lazy Loading |
-
+| FileLoader      |             | Lazy Loading |
+| LlmApiManager   | Construct API connections to LLM services. |  |
 
 
 

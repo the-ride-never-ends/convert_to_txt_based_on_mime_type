@@ -163,11 +163,11 @@ class FilePath(BaseModel):
 
     Attributes:
         file_path (ValidPath): The path to the file. It must meet the following criteria:
-            - The path must be a valid file path.
-            - The file must exist in the input directory.
-            - The file must be readable.
-            - The file must be of a type we have a converter for.
-            - The file's size must be under the memory limit allocated to the program.
+        - The path must be a valid file path.
+        - The file must exist in the input directory.
+        - The file must be readable.
+        - The file must be of a type we have a converter for.
+        - The file's size must be under the memory limit allocated to the program.
     """
     file_path: Annotated[ValidPath, AfterValidator(validate_file_path)]
 
@@ -260,6 +260,7 @@ class FilePathBatch(BaseModel):
             return self.batch.pop(0)
         raise StopIteration
 
+from queue import Queue
 
 class FilePathsManager():
     """
@@ -268,7 +269,9 @@ class FilePathsManager():
     def __init__(self, configs: Configs):
         self.configs = configs
         self.configs.logger = Logger(self.__name__)
-        self.output_cids = set()
+        self.output_cids: set[str] = self.get_cids_from_output_dir()
+        self.input_files: list[FilePath] = self.get_file_paths_from_input_dir()
+        self.output_queue = Queue()
 
 
     def get_cids_from_output_dir(self) -> set[str]:
@@ -281,55 +284,90 @@ class FilePathsManager():
             set[str]: A set of CIDs from the output directory.
         """
 
-    def get_file_paths_from_input_dir(self) -> set[FilePath]:
+    def get_file_paths_from_input_dir(self) -> list[FilePath]:
         """
         Get file paths from the input directory. 
-        This method will recursively search for files in the input directory and return a list of file paths.
+        This method will recursively search for files in the input directory and return a Set of file paths.
 
-        Performs the following checks:
-            Checks the file types and skips any unsupported file types.
-            Checks the file size and skips any files the size allocated to the program.
-            Checks the file's CID against the database and/or output folder and skips any files 
-                that have already been processed.
+        Performs the following checks
+        - Checks the file types and skips any unsupported file types.
+        - Checks the file size and skips any files that are larger than memory allocated to the program.
 
         Returns:
            list[FilePath]: A list of file path base models created from the files in the input directory.
 
-        Raise:
+        Raises:
            FileNotFoundError: If the input directory does not exist or is not a directory.
            ValueError: If the input directory is empty.
+
+        Example:
+        >>> list_of_file_paths = get_file_paths_from_input_dir()
+        >>> print(list_of_file_paths)
+        >>> [ FilePath(file_path=PosixPath('input_dir/file1.txt'), ...]
         """
         pass
 
     def make_file_path_metadata(self, file_path: FilePath) -> FilePathAndMetadata:
         """
-        Make metadata for a list of file paths.
+        Make metadata for a file path.
+
+        This method will create a FilePathAndMetadata object for a given file path.
+
+        Performs the following checks:
+            Checks the file's CID against the database and/or output folder and skips any files 
+                that have already been processed.
 
         Args:
             file_path (FilePath): The file path to make metadata for.
 
         Returns:
             FilePathAndMetadata: The metadata for the file path.
+
+        Example:
+        >>> file_path = FilePath(file_path=PosixPath('input_dir/file1.txt'))
+        >>> file_path_metadata = make_file_path_metadata(file_path)
+        >>> print(file_path_metadata.model_dump())
+        {
+            'file_path': PosixPath('input_dir/file1.txt'),
+            'cid': 'Qm...',
+        }
         """
         pass
 
-    def create_batch(self, batch_size: int = 1024) -> FilePathBatch:
+    def create_batch(self, batch_size: int = 1024) -> Generator[FilePathBatch, None, None]:
         """
         Create a batch of file paths and their metadata.
         This method will create a batch of file paths and their metadata from the input directory.
         The batch's size is specified in the configuration settings.
 
         Args:
-            batch_size (int): The size of the batch to create. Defaults to 1024 (paths).
+            batch_size (int): The size of the batch to create. Defaults to 1024 (Path objects).
 
         Returns:
             FilePathBatch: A batch of file paths and their metadata.
+        
+        Example:
+        >>> batch = 1024
+        >>> for file_path_batch in self.create_batch(batch):
+        >>>   print(file_path_batch.model_dump())
+        {
+            'batch': [
+                {
+                    'file_path': PosixPath('input_dir/file1.txt'),
+                    'cid': 'Qm...',
+                },
+                ...
+            ]
+        }
+            
         """
         pass
 
     def __iter__(self):
         return self
 
-    def __next__(self) -> FilePathBatch:
-        pass
+    def __next__(self) -> Generator[FilePathBatch, None, None]:
+        if self.input_files:
+            yield self.create_batch(self.configs.batch_size)
+        raise StopIteration
 

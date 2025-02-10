@@ -1,4 +1,7 @@
 import asyncio
+from contextlib import contextmanager
+from dataclasses import dataclass
+from functools import cached_property
 import hashlib
 import logging
 import os
@@ -8,7 +11,7 @@ import re
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Coroutine, IO, Iterable, Never, Optional, TypeVar
+from typing import Annotated, Any, Callable, Coroutine, Generic, IO, Iterable, Never, Optional, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -33,9 +36,10 @@ from playwright.async_api import (
     Playwright,
     PlaywrightContextManager,
 )
-from pydantic import BaseModel, Field, HttpUrl, EmailStr
+from pydantic import BaseModel, Field, HttpUrl, EmailStr, PrivateAttr
 
 
+from utils.llm_api_manager.llm_api_manager import ApiConnection, LlmApiManager
 from pydantic_models.configs import Configs
 from logger.logger import Logger
 logger = Logger(__name__)
@@ -79,20 +83,7 @@ class MachineLearningModel:
     pass
 
 
-class Converter:
 
-    def __init__(self, configs: Configs):
-        self.configs = configs
-        #self.markitdown = MarkItDownAsync()
-
-    async def source(self) -> str:
-        pass
-
-    async def drain(self) -> str:
-        pass
- 
-    async def convert(self, url: str) -> DocumentConverterResult:
-        pass
 
 
 
@@ -392,53 +383,325 @@ from utils.common.next_step import next_step
 
 from utils.file_paths_manager.file_paths_manager import FilePathsManager
 from typing import AsyncGenerator
-
+T = TypeVar('T')  # Generic type for pooled resources
+from enum import Enum, auto
 
 CustomClass = TypeVar("CustomClass")
 
-class ApiConnection(BaseModel):
-    pass
+
+
+
+
+
+
+class ResourceState(Enum):
+    AVAILABLE = auto()
+    IN_USE = auto()
+    DISPOSED = auto()
+
+class ResourceType(Enum):
+    PERSISTENT = auto()  # Resources that should be kept alive (like LLMs)
+    TRANSIENT = auto()   # Resources that can be destroyed and recreated (threads)
+    CONSUMABLE = auto() # Resources that can be exactly once ()
+
+import psutil
+
+import signal 
+import resource 
+
+
+import subprocess as sp
+import os
+
+import functools
+
+@functools.lru_cache(maxsize=3)
+def get_gpu_memory() -> list[int]: # Available memory for each GPU (in MegaBytes)
+    command = "nvidia-smi --query-gpu=memory.free --format=csv"
+    memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
+    memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
+    return memory_free_values
+
 
 class SystemResource(BaseModel):
     pass
-
-
-class LlmApiManager():
-    
-    def __init__(self, configs: Configs):
-        self.configs = configs
-
-    def out(self) -> list[ApiConnection]:
-        pass
 
 
 class SystemResourcesManager():
 
     def __init__(self, configs: Configs):
         self.configs = configs
+        self.max_cores: int = psutil.cpu_count(logical=False)  # Get the number of physical CPU cores
+        self.cores_in_use: int = psutil.cpu_count(logical=True)  # Get the number of logical CPU cores (including hyperthreading)
+        self.memory_available: int = psutil.virtual_memory().available  # Get the amount of available memory in bytes
+        self.memory_in_use: int = psutil.Process().memory_info().rss  # Get the Resident Set Size (RSS) memory used by this process
+        self.gpu_memory_in_use: int = get_gpu_memory()  # Get the amount of Available memory for each GPU (in MegaBytes)
 
-    def out(self) -> list[SystemResource]:
+    def get_available_cores(self) -> int:
+        """
+        Get the number of available CPU cores from the system.
+
+        Returns:
+            int: The number of cores available as an int
+            If the amount of available CPU cores is greater than the amount specified in the config file,
+                then the amount specified in the config file is returned.
+        """
+        pass
+
+    def get_available_memory(self) -> int:
+        """
+        Get the amount of available system memory from the system.
+
+        Returns:
+            SystemResource: The amount of system available in bytes as an int.
+            If the amount of available system memory is greater than the amount specified in the config file,
+                then the amount specified in the config file is returned.
+        """
+        pass
+
+    def get_available_gpu_memory(self) -> int:
+        """
+        Get the amount of available GPU memory from the system.
+
+        Returns:
+            SystemResource: The amount of GPU memory available in bytes as an int.
+            If the amount of available GPU memory is greater than the amount specified in the config file,
+                then the amount specified in the config file is returned.
+        """
+        pass
+
+    def update(self, call_every: int = 5) -> Generator[SystemResource, None, None]:
+        """
+        Update the system resource information.
+        This method sends the current system resource information to the External Resource Manager.
+        Operates based on a push system, where system resource information is automatically sent 
+            to the External Resource Manager every X seconds.
+
+        Args:
+            call_every (int, optional): The interval in seconds to call the update method. Defaults to 5.
+            This is used to control the frequency of updates to the External Resource Manager.
+
+        Yields:
+            SystemResource: The updated system resource information.
+
+        """
+        pass
+
+
+class PooledResource(BaseModel):
+
+    created_at: float = Field(default_factory=lambda: time.time())
+    last_used_at: float = Field(default_factory=lambda: time.time())
+    state: ResourceState = Field(default_factory=ResourceState.AVAILABLE)
+    use_count: int = Field(default=0)
+    resource_type: Optional[ResourceType] = None
+
+    _resource: Optional[T] = PrivateAttr(default=None)
+
+    @cached_property
+    def resource(self) -> T:
+        self.last_used_at = time.time()
+        self.state = ResourceState.IN_USE
+        return self._resource
+
+    @resource.setter()
+    def resource(self, value) -> None:
+        self._resource = self.validate(value)
+
+    @resource.deleter()
+    def resource(self) -> None:
+        if self.resource_type is ResourceType.PERSISTENT:
+            self.reset(self)
+        elif self.resource_type is ResourceType.TRANSIENT:
+            self.destroy(self)
+        else:
+            raise AttributeError("Resource lacks a type")
+        self.state = ResourceState.DISPOSED
+
+    def create(self) -> T:
+        """
+        """
+        pass
+
+    def reset(self) -> bool:
+        """
+        Reset the resource to a clean state without destroying it.
+
+        Returns:
+            bool: True if reset was successful, False if resource needs to be re-created.
+        """
+        pass
+
+    def validate(self, value) -> bool:
+        """
+        Validate if a given resource is healthy.
+        Called when a resource the following happens:
+            - The resource is returned to the Core Resource Manager.
+            - The resource is first created by the External Resource Manager.
+            - The resources has spent X amount of time in its respective pool.
+            - The resources enters the Health Monitor class.
+
+        Returns:
+            bool: True if the resources is healthy, else False.
+        """
+
+    def destroy(self) -> bool:
+        """
+        Destroy a resource.
+        
+        Returns:
+            bool: True if reset was successful, False if resource needs to be re-created.
+        """
+        pass
+
+    def clean_up(self) -> bool:
+        """
+        Cleanup the resource when destroying it.
+        """
         pass
 
 
 class Resource(BaseModel):
-    api_connection: ApiConnection = None
-    func: Callable | Coroutine = None
+    api_connection: list[ApiConnection] = None
+    func: list[dict[str, Callable]] | list[dict[str,Coroutine]] = None
     gpu_mem: int = None
     thread: int = None
     sys_mem: int = None
-    file_path: Path = None
+    file_path: list[Path] = None
+
+    _use_count: int = PrivateAttr(default=0)
+
+    def __iter__(self):
+        return self
+
+    def __aiter__(self):
+        return self
+
+    def __next__(self):
+        return
+
+    async def __anext__(self):
+        if self.api_connection:
+            yield self.api_connection.pop(0)
+        if self.func:
+            for func in self.func:
+                yield func
+        if self.gpu_mem:
+            yield self.gpu_mem
+        if self.thread:
+            yield self.thread
+        if self.sys_mem:
+            yield self.sys_mem
+        if self.file_path:
+            yield self.file_path.pop(0)
+        raise StopAsyncIteration
+
+    def request(self, requested_items: dict[str, Any]):
+        pass
+
+    def create(self) -> T:
+        """Create the actual resource."""
+        pass
+
+    def validate(self) -> bool:
+        """Validate the resources are still healthy."""
+        pass
+
+    def cleanup(self):
+        """Cleanup the resources when destroying it."""
+        pass
+
+    def mark_in_use(self):
+        self.state = ResourceState.IN_USE
+        self.last_used_at = time.time()
+        self.use_count += 1
+
+    def get_resource(self) -> T:
+        if self._resource is None:
+            self._resource = self.create()
+        return self._resource
+
+# Type definitions
+T = TypeVar('T')
+E = TypeVar('E')
+
+@dataclass
+class Either(Generic[E, T]):
+    value: T | E
+    is_right: bool
+
+    @classmethod
+    def right(cls, value: T) -> 'Either[E, T]':
+        return cls(value, True)
+
+    @classmethod
+    def left(cls, error: E) -> 'Either[E, T]':
+        return cls(error, False)
+
+    def map(self, func: Callable[[T], T]) -> 'Either[E, T]':
+        if self.is_right:
+            return Either.right(func(self.value))
+        return self
+
+    def bind(self, func: Callable[[T], 'Either[E, T]']) -> 'Either[E, T]':
+        if self.is_right:
+            return func(self.value)
+        return self
+
+
+class Converter:
+
+    def __init__(self, resource: Resource, configs: Configs):
+        self.configs = configs
+        #self.markitdown = MarkItDownAsync()
+
+    async def source(self) -> str:
+        pass
+
+    async def drain(self) -> str:
+        pass
+ 
+    async def convert(self, url: str) -> DocumentConverterResult:
+        pass
+
+
+
+
+
+
 
 
 class Pool():
 
     def __init__(self, configs: Configs):
         self.configs = configs
+        self.gpu_mem: int = None
+        self.sys_mem: int = None
+        self.api_connections: int = None
+        self.func: dict[str, int] = None
+        self.file_paths: list[Path]
 
-    def put(self, resource: Resource):
+        self._initialize_pool()
+
+    def _initialize_pool(self):
+        """
+        Start up the pool with the initial resources.
+        """
         pass
 
-    def dispense(self) -> Resource:
+    def put(self, resource: Resource):
+        """
+        Put a resource back into the pool.
+        
+        """
+        pass
+
+    def dispense(self) -> Generator[Resource]:
+        """
+        Dispense a resource from the pool.
+        It does so by creating a Resource on-the-fly and yield it.
+
+        """
         pass
 
     @property
@@ -467,10 +730,38 @@ class Pools():
     def create_pool(self, configs: Configs) -> Pool:
         """
         Instantiate a pool with the given configuration.
-        Instead of having the objects themselves be the pool, the pool consists of references to the objects.
-        For instance, if the pool is for API connections, it will consist of references 
-            to the API connections, not the API connections themselves.
+        Save for File Paths and API connections, each pool consists of a series of counters. 
+           Each counter's upper bound is determined by the maximum values specified in the Configs object. 
+           or whatever resources the system has available, whichever is smaller.
+           For instance, if the config specifies that the maximum available memory is 1024 MBs, 
+           but the system only has 512 MB, then the pool's maximum will only be 512 MBs.
+    
+        When a Resource object is created, the counter is decremented by the amount of resources 
+            that are allocated to the resource.
+
+        When a Resource is consumed by a function, the Pool counter is *not* automatically incremented.
+            Instead, the freed resource goes to the Core Resource Manager to be re-allocated to another 
+            file in the File Path Queue. If no files in the Queue need that resource, then the resource 
+            is returned to the pool, and the Pool's counter is incremented.
+            For instance, if the Queue is filled with files that don't require an API connection to convert,
+            the connection is returned to the pool and its counter is incremented.
+
+        When a given Pool's counter is at zero, the creation of that Resource will be blocked until resources 
+            are returned to the pool, or new Resources are provided by the External Resource Manager, 
+            which ever happens sooner. This will have the side-effect of dynamically limiting 
+            the number of files that can be processed at any one time.
         
+        When a given Pool's counter is at its maximum, returned Resources will be 'thrown away' and the counter 
+           remains the same amount. For connections, this means that the connection will be closed (???).
+
+        For API connections, the pool is a traditional connection pool a la MySQL. 
+            When a Resource object is created, a connection is allocated to the Resource.
+            When the Resource object is consumed, the connection is returned to the pool.
+            If the pool is empty, a new connection is requested from the External Resource Manager 
+            and added to the pool.
+
+        API connections are refreshed periodically to ensure that they are still valid.
+
         Args:
             configs (Configs): The configuration for the pool.
 
@@ -479,19 +770,76 @@ class Pools():
         """
         return Pool(configs)
 
-    def need_a_resource(self) -> bool:
+    def check_what_resources_the_core_manager_needs(self) -> bool:
         """
-        Check the pools to see if they need any resources.
-        
+        Query the Core Manager to see if it needs any Resources.
+
         Returns:
             bool: True if any pool is not full or empty, and False if all pools are full.
         """
         pass
 
+    def make_a_resource() -> Generator[Resource]:
+        """
+        Construct a Resource by taking items from the pools, then yield it.
+        When a resource is yielded, it is removed from the pools, and the pool states are updated to reflect
+        that the resources have been allocated.
+
+        NOTE: As a guideline, we should over-allocate resources rather than under-allocate.
+            Over-allocating is less efficient, but more robust, since a process is less likely to fail
+            due to a lack of resources. 
+
+        Returns:
+            resource (Resource): A Resource to be taken from the pools.
+            Resource is a pydantic base model that can contain any combination of the following:
+            - A FilePath pydantic model pointing to an input file. 
+                This consists of a path, a CID, and other attributes that are calculated on the fly.
+            - References to a series of functions to be executed in order to convert a file.
+            - An API connection that is needed by one or more of the functions in order to convert a file.
+                As functions are sequential, the API connection is only released after the last function 
+                that uses an API connection has been executed.
+            - Total system memory (in bytes) necessary to execute the conversion functions.
+            - GPU memory (in bytes) necessary to execute the conversion functions. This is primarily
+                for conversion functions that rely on local ML models such as Whisper, or a V-LLM.
+            - Number of CPU threads necessary to execute the conversion functions.
+
+        Example Return:
+            >>> resource = acquire()
+            print(resource.model_dump)
+            >>> {
+                    'path': FilePath('path/to/file'),
+                    'api_connection': 1,
+                    'threads': 1,
+                    'func': [{
+                                'step': 1
+                                'name': 'open_json',
+                                'sys_mem': 512
+                            },
+                            {
+                                'step': 2
+                                'name': 'convert_json',
+                                'sys_mem': 512,
+                                'api_connection': 1,
+                                'gpu_mem': 1024
+                            },
+                            {
+                                'step': 3
+                                'name': 'save_json',
+                                'sys_mem': 256
+                            }], 
+                    'gpu_mem': 1024, 
+                    'sys_mem': 1280
+                }
+        """
+        pass
+
+    def release() -> None:
+        pass
+
     def receive(self, resource: Resource) -> None:
         """
         Receive a resource and put it back into the appropriate pool.
-        
+
         Args:
             resource (Resource): Resources to be returned to the pool.
             A resource is a pydantic base model that can contain a combination of the following:
@@ -512,7 +860,11 @@ class Pools():
         if resource.sys_mem:
             self.sys_mem_pool.put(resource)
 
-    def send(self) -> Resource:
+    def send_to_core_manager(self) -> Resource:
+        """
+        Send a Resource to the Core Manager.
+        
+        """
         pass
 
 
@@ -520,32 +872,52 @@ class PoolHealthMonitor:
 
     def __init__(self, configs: Configs, pools: Pools):
         self.configs = configs
-        self.pools = pools.copy()
+        self.pools = pools
 
     def check_pool_health(configs) -> None:
         pass
 
 class ExternalResourcesManager():
 
-    def __init__(self, configs: Configs, utility_classes: list[CustomClass]):
+    def __init__(self, configs: Configs, utility_classes: dict[str, CustomClass]):
         self.configs = configs
         self._resource_holder = []
+        self.file_path_manager = utility_classes.pop("file_path_manager")
+        self.api_connections = utility_classes.pop("api_connections")
+        self.system_resources = utility_classes.pop("system_resources")
 
-    def create(self, paths, system_resources, api_connections) -> list[Resource]:
+    def create_resource(self, paths, system_resources, api_connections) -> AsyncGenerator[Resource]:
+        """
+        Create a Resource from the available paths, system resources, and API connections.
+        
+        """
         pass
+
 
     def gets_back(self, resource: Resource) -> None:
+        """
+        
+        """
         self._resource_holder.append(resource)
 
+
     async def out(self) -> Resource:
+        """
+        
+        """
         pass
 
+
     def has_resources(self) -> bool:
+        """
+        
+        """
         pass
+
 
     @property
     async def resources(self) -> AsyncGenerator[Resource, None]:
-        async for await resource in self.out():
+        async for await resource in self.create_resource():
             resource: Resource
             yield resource
 
@@ -554,45 +926,54 @@ class CoreResourceManager():
 
     def __init__(self, configs: Configs):
         self.configs = configs
+        self.available_resources: dict[str, Resource] = None
+        self.outputs = None
 
-    def needs_a_resource(self) -> bool:
+    def request_a_resource_from_the_pool(self) -> Resource: #Empty resource
+        """
+        Given the files currently in the FilePathQueue, request a resource from the pool
+        
+        """
         pass
 
     def receives(self, resource: Resource) -> None:
+        """
+        Receive a resource and put it in their respective available resource queue.
+
+        Args:
+
+        """
         pass
 
-    def returns_that_resource(self, resource: Resource) -> None:
+    def send_a_resource_back_to_the_pool(self) -> Resource:
+        """
+        """
         pass
 
-    def doesnt_need_a_resource_anymore(self) -> None:
+    def send_a_path_to_the_file_queue(self) -> Resource:
+        """
+        """
         pass
 
+    def send_to_the_converter(self) -> Resource:
+        """
+        """
+        pass
 
-class FilePathQueue():
+    def returns_that_resource(self, resource: Resource) -> None|Resource:
+        """
+        """
+        pass
 
-    def __init__(self):
-        self.queue = asyncio.Queue()
+    def doesnt_need_a_resource_anymore(self) -> bool:
+        """
+        Given the files currently in the File Queue, tell the Resource Manager if 
+            it doesn't need a resource anymore.
 
-
-class ConsumableList:
-
-    def __init__(self):
-        self.items = []
-        self.lock = asyncio.Lock()
-
-    async def add(self, item):
-        async with self.lock:
-            self.items.append(item)
-
-    async def get(self):
-        async with self.lock:
-            if self.items:
-                return self.items.pop(0)
-            return None
-
-    async def is_empty(self):
-        async with self.lock:
-            return len(self.items) == 0
+        If the 
+        
+        """
+        pass
 
 
 def instantiate(this_class: type[CustomClass] = None, with_these = None, and_these = None):
@@ -607,6 +988,7 @@ def instantiate(this_class: type[CustomClass] = None, with_these = None, and_the
         the_instantiated_class = this_class(with_these, and_these)
 
     return the_instantiated_class
+
 
 
 class FilePathQueue:
@@ -647,6 +1029,78 @@ class FilePathQueue:
         pass
 
 
+from typing import Generator
+
+class Processor:
+
+    def __init__(self, configs, resource):
+        self.configs = configs
+        self.resource: Resource = resource
+        self.either: Either = None
+
+        self.compose = self.compose(configs, resource)
+
+        if self.the_file_needs_async_processing(resource):
+            self.processor = self.async_processor(resource)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        while True:
+            try:
+                yield await self.processor(self.file, self.resource)
+            finally:
+                raise StopAsyncIteration
+
+    def processor(file: Path, resource: Resource) -> Generator[Resource]:
+        """
+        Compose resources into a processor chain.
+        A processor chain is a series of functions that take a Resource and return left-overs as they go.
+        A chain requires a Resource and a file to process:
+
+           - file: Path
+           - functions: dict[str, Callable]
+           - API connections: list[ApiConnection]R
+           - System Resources: list[SystemResource]
+        
+        """
+
+    async def async_processor(file, resource: Resource) -> AsyncGenerator[Resource]:
+        """
+        
+        
+        """
+        pass
+
+    def compose(resource: Resource) -> Either:
+        """
+        Take functions from a resourec and compose them into a chain.
+
+        The chain is a list of functions and/or coroutines that will be executed in order.
+        """
+        pass
+
+    def the_file_needs_async_processing(file):
+        """
+        
+        """
+        pass
+
+    def returns_leftover_resources() -> Resource | None:
+        """
+        If there are any leftover resources, return them back to the Core Manager.
+
+        """
+        pass
+
+def figure_out_what_resources_we_need_for_this(file):
+    pass
+
+
+
+
+
 async def main():
 
     logger.info("Begin __main__")
@@ -672,12 +1126,18 @@ async def main():
 
 
     next_step("Step 5: Create and start the External Resource Manager.")
-    classes = [file_paths_manager, llm_api_manager, system_resources_manager]
+    classes = {
+        'file_paths_manager':file_paths_manager, 
+        'llm_api_manager':llm_api_manager, 
+        'system_resources_manager':system_resources_manager
+    }
+    # NOTE This should run in its own thread.
     the_erm = instantiate(this_class=ExternalResourcesManager, with_these=configs, and_these=classes)
 
 
     next_step("Step 6: Create and start the Core Resource Manager.")
-    the_core_resource_manager = instantiate(this_class=CoreResourceManager, with_these=configs)
+    # NOTE This should run in its own thread.
+    the_core = instantiate(this_class=CoreResourceManager, with_these=configs)
 
 
     next_step("Step 7: Create and start the Pool Health Monitor.")
@@ -685,16 +1145,15 @@ async def main():
 
 
     next_step("Step 8: Create and start the Pools.")
+    # NOTE This should run in its own thread.
     the_pools = instantiate(this_class=Pools, with_these=configs, and_these=pool_health_monitor)
 
 
     next_step("Step 9: Start the main loop.")
     while True:
 
-
         next_step("Step 10: Generate a resource.")
         async for this_resource in the_erm.resources:
-
 
             next_step("Step 11: Check if the pool needs a resource.")
             if the_pools.need_a_resource():
@@ -704,20 +1163,18 @@ async def main():
                 next_step("Step 12b: Return a resource to the ExternalResourcesManager if the Pools don't need it.")
                 the_erm.gets_back(this_resource)
 
-
             next_step("Step 13: Send a resource to the CoreResourceManager if the CoreResourceManager needs it.")
-            if the_core_resource_manager.needs_a_resource():
-                the_core_resource_manager.receives(this_resource)
-
+            if the_core.needs_a_resource():
+                the_pools_resource = the_pools.make_a_resource()
+                the_core.receives(the_pools_resource)
 
             next_step("Step 14: Return a resource to the ExternalResourcesManager if the CoreResourceManager doesn't need it.")
-            if the_core_resource_manager.doesnt_need_a_resource_anymore():
-                that_resource = the_core_resource_manager.returns_that_resource()
+            if the_core.doesnt_need_a_resource_anymore():
+                that_resource = the_core.returns_that_resource()
                 the_erm.gets_back(that_resource)
 
-
         # NOTE: We can run sync functions in an async loop, but not vice-versa.
-        for file, resources in the_core_resource_manager:
+        for file, resources in the_core:
             next_step("Step 15: Instantiate a queue of files and fill it up.")
             the_queue = FilePathQueue(configs)
             if await the_queue.is_not_full():
@@ -726,55 +1183,27 @@ async def main():
             async for file in the_queue:
                 next_step("Step 16: Figure out what resources we need, then allocate them.")
                 what_we_need = figure_out_what_resources_we_need_for_this(file)
-                allocated_resources = the_core_resource_manager.gives_us(what_we_need, from_these=resources)
+                allocated_resources = the_core.gives_us(what_we_need, from_these=resources)
 
                 next_step("Step 17: Actually convert the file.")
-                processor = Processor(file, configs, allocated_resources)
+                # NOTE This should run in its own thread.
+                this_specific_processor = Processor(file, configs, allocated_resources)
                 try:
-                    async for this_used_resource in processor:
-                        the_core_resource_manager.receives(this_used_resource)
+                    next_step("Step 18: As we run through the conversion steps, give resources back to the Core Resource Manager.")
+                    async for this_used_resource in this_specific_processor:
+                        the_core.receives(this_used_resource)
                 except:
+                    ("Step 18b: Return remaining resources to the pool on failure.")
                     # NOTE: We don't care why it failed, we just want to make sure we get our resources back.
                     # It's all about keeping everything going!
-                    the_leftover_resources = await processor.returns_leftover_resources()
-                    the_core_resource_manager.receives(the_leftover_resources)
+                    the_leftover_resources = await this_specific_processor.returns_leftover_resources()
+                    the_core.receives(the_leftover_resources)
                 finally:
-                    the_queue.remove_this(file)
+                    next_step("Step 19: Return all the left over resources to the pool.")
+                    the_leftover_resources = await this_specific_processor.returns_leftover_resources()
+                    the_core.receives(the_leftover_resources)
+                    the_queue.removes_this(file)
 
-
-class Processor:
-
-    def __init__(self, file, configs, resources):
-        self.configs = configs
-        self.resources = resources
-
-        if self.the_file_needs_async_processing(file):
-            self.processor = self.async_processor(file, resources)
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        while True:
-            try:
-                yield await self.processor(self.file, self.resources)
-            except StopAsyncIteration:
-                raise StopAsyncIteration
-
-    def processor(file, resources):
-        pass
-
-    async def async_processor(file, resources):
-        pass
-
-    def the_file_needs_async_processing(file):
-        pass
-
-    def returns_leftover_resources():
-        pass
-
-def figure_out_what_resources_we_need_for_this(file):
-    pass
 
     # # Load in the config file.
     # configs = Configs()
