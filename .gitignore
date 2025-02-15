@@ -9,11 +9,17 @@ input/*
 !input/_input_files_go_here.txt
 output/*
 !output/_output_files_go_here.txt
+deprecated/
+
+utils/common/experimental/*
+utils/common/monads/*
+!utils/common/monads/async_.py
 
 docs/
 
 *.json
 *.csv
+*.db
 
 # IDE files
 .vscode/

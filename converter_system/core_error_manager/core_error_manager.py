@@ -45,32 +45,35 @@ class Either(Generic[E, T]):
             return f(self.value)
         return self
 
+import threading
+
 # Health monitoring system
 class HealthMonitor:
     def __init__(self):
+        self.counter_lock = threading.RLock()
         self.memory_threshold = 0.85
         self.max_file_handles = 100
         self.status = ConversionStatus.IDLE
-        
+
     def check_memory(self) -> Either[str, float]:
         memory = psutil.virtual_memory()
         if memory.percent > (self.memory_threshold * 100):
             return Either.left(f"Memory usage too high: {memory.percent}%")
         return Either.right(memory.percent)
 
-
     def check_file_handles(self) -> Either[str, int]:
         try:
             # On Windows, use os.getpid() to get the current process ID
             pid = os.getpid()
-            
+
             # Use psutil to get the number of open file descriptors for the current process
             process = psutil.Process(pid)
             current_handles = process.num_fds()
             if current_handles >= self.max_file_handles:
                 return Either.left(f"Too many open files: {current_handles}")
             return Either.right(current_handles)
-        except AttributeError:
+
+        except Exception as e:
             # If num_fds() is not available (older versions of psutil on Windows), 
             # we'll return a default value
             return Either.right(0)
@@ -127,6 +130,34 @@ class ConversionResult:
     content: Optional[str]
     error: Optional[str]
 
+
+import logging
+from pydantic import BaseModel
+
+
+from pydantic_models.configs import Configs
+from pydantic_models.resource.resource import Resource
+
+
+from typing import Any
+
+class ResourceException(BaseModel, Exception):
+    cid: str
+    exception: Exception = None
+    message: Optional[str] = None
+
+class CoreErrorManager:
+
+    def __init__(self, resources: list[Resource], configs: Configs):
+        self.logger = configs.logger
+
+
+    def log(self, result: Resource) -> Resource:
+        """
+        
+        """
+        if isinstance(result, Exception):
+            self.logger.error(f"Error occurred: {result}")
 
 
 def circuit_breaker(func):

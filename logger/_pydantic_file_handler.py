@@ -4,7 +4,8 @@ import logging
 import threading
 
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer,  model_serializer, ValidationError
+from pydantic_core import to_jsonable_python 
 
 
 def get_current_datetime_in_iso_8601_() -> str:
@@ -23,12 +24,6 @@ class LogEntry(BaseModel):
     """
     A log entry with a message, level, line number, and a timestamp.
     """
-    model_config = {
-        "json_encoders": {
-            str: lambda v: v.encode('utf-8', errors='replace').decode('utf-8')
-        }
-    }
-
     message: str = Field(..., description="The log message")
     filename: str = Field(..., description="The filename where the log entry was created")
     func_name: str = Field(..., description="The function name where the log entry was created")
@@ -85,14 +80,14 @@ class PydanticFileHandler(logging.FileHandler):
         Make a structured log entry based on a pydantic model.
         """
         if self.log_entry_model is None:
-            log_entry = LogEntry(
-                message=record.getMessage(), # NOTE It's NOT message, it's msg. FML
-                filename=record.filename,
-                func_name=record.funcName,
-                level=record.levelno,
-                lineno=record.lineno,
-                timestamp=get_current_datetime_in_iso_8601_()
-            )
+                log_entry = LogEntry(
+                    message=record.getMessage(), # NOTE It's NOT message, it's msg. FML
+                    filename=record.filename,
+                    func_name=record.funcName,
+                    level=record.levelno,
+                    lineno=record.lineno,
+                    timestamp=get_current_datetime_in_iso_8601_()
+                )
         else:
             record_dict = {
                 key: value for key, value in record.__dict__.items()

@@ -39,28 +39,11 @@ from playwright.async_api import (
 from pydantic import BaseModel, Field, HttpUrl, EmailStr, PrivateAttr
 
 
-from utils.llm_api_manager.llm_api_manager import ApiConnection, LlmApiManager
+from external_interface.api_manager.api_manager import ApiConnection, ApiManager
+from pydantic_models.resource.resource import Resource
 from pydantic_models.configs import Configs
 from logger.logger import Logger
 logger = Logger(__name__)
-
-
-
-
-def _count_number_of_camel_case_words(html: str) -> int:
-    # Remove HTML tags
-    text = re.sub('<[^<]+?>', '', html)
-    
-    # Regular expression for camel case words
-    camel_case_pattern = r'([A-Z][a-z]+){2,}'
-    
-    # Find all matches
-    matches = re.findall(camel_case_pattern, text)
-    
-    # Return the count of matches
-    return len(matches)
-
-
 
 # DocumentConverterResult: TypeAlias = Any
 
@@ -84,284 +67,6 @@ class MachineLearningModel:
 
 
 
-
-
-
-
-# class MarkItDownAsync(MarkItDown):
-#     """
-#     A modified version of MarkItDown that supports asynchronous use.
-#     """
-
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self._asyncio_lock = asyncio.Lock()
-#         self._concurrency_limit: int = kwargs.get("concurrency_limit", 5)
-#         self._aiohttp_session = None
-#         self._browser: Browser = None
-#         self._playwright_dom_manipulation_ruleset: dict[str, Coroutine | list[Coroutine]] = None
-#         self._we_have_async: bool = None
-
-#         try: # Importing these should tell is whether or not we have async functionality.
-#             import playwright
-#             import aiohttp
-#             self._we_have_async = True
-#         except:
-#             self._we_have_async = False
-
-#         if self._we_have_async:
-
-#             aiohttp_session: aiohttp.ClientSession = kwargs.get("aiohttp_session", None)
-#             self._aiohttp_session = aiohttp.ClientSession() if aiohttp_session is None else aiohttp_session
-
-#             playwright_context_manager: PlaywrightContextManager = kwargs.get("playwright_context_manager", None)
-
-#             if playwright_context_manager is None:
-#                 print("Warning: No Playwright context manager provided. Loading URLs with Playwright will be disabled.")
-#             else:
-#                 playwright_configs: Configs = kwargs.get("playwright_configs", None)
-#                 if playwright_configs is not None:
-#                     self._browser = playwright_context_manager.chromium.launch(**playwright_configs)
-#                 else:
-#                     self._browser = playwright_context_manager.chromium.launch(headless=True)
-
-#     @classmethod
-#     def enter(cls, *args, **kwargs):
-#         instance = cls(*args, **kwargs)
-#         return instance
-
-#     async def exit(self):
-#         if self._aiohttp_session is not None:
-#             await self._aiohttp_session.close()
-#         if self._browser is not None:
-#             await self._browser.close()
-
-#     def raise_runtime_error_if_no_async(self):
-#         if not self._we_have_async:
-#             raise RuntimeError("Async functionality is not available. Please install the required dependencies.")
-
-#     async def async_convert(self, 
-#                       source: str | aiohttp.ClientResponse | Path | requests.Response, 
-#                       **kwargs: Any
-#                     ) -> DocumentConverterResult:
-#         """
-#         Args:
-#             source: can be a string representing one of the following:
-#                 - a local path to a file, either as string or a pathlib.Path object
-#                 - a url string
-#                 - a requests.response object
-#                 - a aiohttp.ClientResponse object
-#             extension: specifies the file extension to use when interpreting the file. 
-#                 If None, infer from source (path, uri, content-type, etc.)
-
-#         Returns
-#            DocumentConverterResult: A pydantic model containing the result of converting a document to text.
-#         """
-#         self.raise_runtime_error_if_no_async()
-
-#         # Local path or url
-#         if isinstance(source, str):
-#             if (
-#                 source.startswith("http://")
-#                 or source.startswith("https://")
-#                 or source.startswith("file://")
-#             ):
-#                 if self._aiohttp_session is None:
-#                     return self.convert_url(source, **kwargs)
-#                 else:
-#                     return await self.async_convert_url(source, **kwargs)
-#             else:
-#                 return self.convert_local(source, **kwargs)
-
-#         # Request response
-#         elif isinstance(source, requests.Response):
-#             return self.convert_response(source, **kwargs)
-#         elif isinstance(source, Path):
-#             return self.convert_local(source, **kwargs)
-#         elif isinstance(source, aiohttp.ClientResponse):
-#             return self.convert_aiohttp_response(source, **kwargs)
-#         elif isinstance(source, PlaywrightResponse) and self._browser is not None:
-#             return self.convert_playwright_response(source, **kwargs)
-#         else:
-#             raise ValueError(f"Unsupported source type: {type(source)}")
-
-
-#     async def async_convert_url(
-#         self, url: str, **kwargs: Any
-#     ) -> DocumentConverterResult:
-#         self.raise_runtime_error_if_no_async()
-
-#         # Send a HTTP request to the URL
-#         with self._aiohttp_session.get(url, stream=True) as response:
-#             response: aiohttp.ClientResponse
-#             response.raise_for_status()
-#             text_response = await response.text()
-#         try:
-#             # Check if we need to render the page with Playwright.
-#             if self._figure_out_whether_we_need_to_render_this_url_with_playwright(text_response) and self._browser is not None:
-#                 return await self._convert_url_with_playwright(url, **kwargs)
-#             else:
-#                 return self.convert_aiohttp_response(response, **kwargs)
-#         except: # If we can't parse the HTML, then it's probably not a webpage.
-#             return self.convert_aiohttp_response(response, **kwargs)
-
-
-#     async def _convert_url_with_playwright(self, url: str, **kwargs: Any) -> DocumentConverterResult:
-#         # NOTE Since we always call aiohttp before right this, we can assume that we'll never get a 404 here.
-#         page: Page = await self._browser.new_page()
-#         _page = await page.goto(url)
-#         # if self._playwright_dom_manipulation_ruleset:
-#         #     if url in self._playwright_dom_manipulation_ruleset:
-#         #         for coroutine in self._playwright_dom_manipulation_ruleset[url]:
-#         #             await coroutine(page)
-#         if _page is not None:
-#             await page.wait_for_load_state('networkidle')
-#             response = await _page.request.response()
-#             try:
-#                 return await self.convert_playwright_response(response, page, **kwargs)
-#             finally:
-#                 await page.close()
-#         else:
-#             return None
-
-#     # TODO Make this more robust.
-#     def _figure_out_whether_we_need_to_render_this_url_with_playwright(self, html: str) -> bool:
-#         # Count how many div HTML tags there are.
-#         num_of_divs = html.lower().count('<div')
-
-#         # Check if there's a lot of camel case words in the webpage.
-#         num_of_camel_case_words = _count_number_of_camel_case_words(html)
-
-#         return True if num_of_camel_case_words >= num_of_divs else False
-
-
-#     def _read_the_extension_from_the_path(self, extensions: list[str], url: str) -> None:
-#         base, ext = os.path.splitext(urlparse(url).path)
-#         self._append_ext(extensions, ext)
-
-
-#     async def _guess_from_the_mimetype(self, 
-#                         extensions: list[str], 
-#                         response: aiohttp.ClientResponse | PlaywrightResponse
-#                         ) -> None:
-#         if isinstance(response, PlaywrightResponse):
-#             content_type = response.content_type.split(";")[0] if response.content_type else ""
-#         else:
-#             content_type = response.headers.get("content-type", "").split(";")[0]
-#         self._append_ext(extensions, mimetypes.guess_extension(content_type))
-
-
-#     async def _read_the_content_disposition_if_there_is_one(
-#                         self,
-#                         extensions: list[str], 
-#                         response: aiohttp.ClientResponse | PlaywrightResponse, 
-#                         ) -> None:
-#         # Read the content disposition if there is one
-#         # Get the headers from the page
-#         if isinstance(response, PlaywrightResponse):
-#             content_disposition = response.content_disposition if response.content_disposition else ""
-#         else:
-#             content_disposition = response.headers.get("content-disposition", "")
-#         m = re.search(r"filename=([^;]+)", content_disposition)
-#         if m:
-#             base, ext = os.path.splitext(m.group(1).strip("\"'"))
-#             self._append_ext(extensions, ext)
-
-
-#     async def _download_and_convert_the_file(
-#                         self, 
-#                         fh: IO[bytes],
-#                         extensions: list[str], 
-#                         temp_path: str,
-#                         response: aiohttp.ClientResponse | PlaywrightResponse,
-#                         **kwargs: Any
-#                         ) -> DocumentConverterResult:
-#         chunk_size = 512  # Define chunk size (1/2 KB per write)
-#         if isinstance(response, PlaywrightResponse):
-#             # Get the response body
-#             bytes_ = await response.body()
-
-#             # Download the file
-#             for chunk in range(0, len(bytes_), chunk_size):
-#                 fh.write(bytes_[chunk:chunk+chunk_size])
-#         else:
-#             # Download the file
-#             async for chunk in response.content.iter_chunked(chunk_size):
-#                 fh.write(chunk)
-#             await response.release()
-#         fh.close()
-
-#         # Use puremagic to check for more extension options
-#         for g in self._guess_ext_magic(temp_path):
-#             self._append_ext(extensions, g)
-
-#         return self._convert(temp_path, extensions, url=response.url, **kwargs)
-
-#     def prepare_a_list_of_extensions_to_try_in_order_of_priority(self,  kwargs: Any) -> list[str]:
-#         # Prepare a list of extensions to try (in order of priority)
-#         ext = kwargs.get("file_extension")
-#         return [ext] if ext is not None else []
-
-#     async def convert_playwright_response(self,
-#         response: PlaywrightResponse, **kwargs: Any
-#     ) -> DocumentConverterResult:
-#         self.raise_runtime_error_if_no_async()
-
-#         extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
-
-#         await self._guess_from_the_mimetype(extensions, response)
-#         await self._read_the_content_disposition_if_there_is_one(extensions, response)
-#         self._read_the_extension_from_the_path(extensions, response.url)
-
-#         # Save the file locally to a temporary file. It will be deleted before this method exits
-#         handle, temp_path = tempfile.mkstemp()
-#         fh = os.fdopen(handle, "wb")
-#         result = None
-#         try:
-#             self._download_and_convert_the_file(                        
-#                 fh, extensions, temp_path, response, **kwargs
-#             )
-#         finally:
-#             self._clean_up(fh, response, temp_path, response)
-#         return result
-    
-#     def _clean_up(self, fh: IO[bytes], temp_path: str, response: aiohttp.ClientResponse | PlaywrightResponse) -> None:
-#         try:
-#             fh.close()
-#         except Exception:
-#             pass
-#         try:
-#             response.close()
-#         except:
-#             pass
-#         os.unlink(temp_path)
-
-#     async def convert_aiohttp_response(
-#         self, response: aiohttp.ClientResponse, **kwargs: Any
-#     ) -> DocumentConverterResult:  # TODO fix kwargs type
-#         self.raise_runtime_error_if_no_async()
-
-#         extensions = self.prepare_a_list_of_extensions_to_try_in_order_of_priority(kwargs)
-
-#         await self._guess_from_the_mimetype(extensions, response)
-#         await self._read_the_content_disposition_if_there_is_one(extensions, response)
-#         self._read_the_extension_from_the_path(extensions, str(response.url))
-
-#         # Save the file locally to a temporary file. It will be deleted before this method exits
-#         handle, temp_path = tempfile.mkstemp()
-#         fh = os.fdopen(handle, "wb")
-#         result = None
-#         try:
-#             self._download_and_convert_the_file(                        
-#                 fh, extensions, temp_path, response, **kwargs
-#             )
-#         # Clean up
-#         finally:
-#             self._clean_up(fh, response, temp_path, response)
-#         return result
-
-
-
 def make_sha256_hash(data: Any) -> str:
     return hashlib.sha256(str(data).encode())
 
@@ -372,7 +77,6 @@ def make_hash_tree(*args: Iterable[Any]):
 
 from duckdb.typing import VARCHAR
 
-from utils.config_parser.config_parser import ConfigParser
 from utils.main.run_with_argparse import run_with_argparse
 
 def _program_was_started_from_command_line() -> bool:
@@ -381,7 +85,7 @@ def _program_was_started_from_command_line() -> bool:
 
 from utils.common.next_step import next_step
 
-from utils.file_paths_manager.file_paths_manager import FilePathsManager
+from deprecated.file_paths_manager_mk1 import FilePathsManager
 from typing import AsyncGenerator
 T = TypeVar('T')  # Generic type for pooled resources
 from enum import Enum, auto
@@ -415,60 +119,120 @@ import os
 
 import functools
 
-@functools.lru_cache(maxsize=3)
-def get_gpu_memory() -> list[int]: # Available memory for each GPU (in MegaBytes)
-    command = "nvidia-smi --query-gpu=memory.free --format=csv"
-    memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
-    memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
-    return memory_free_values
+import multiprocessing
+from multiprocessing import Process, Queue, Pipe
 
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+
+pool = ProcessPoolExecutor()
 
 class SystemResource(BaseModel):
     pass
 
 
 class SystemResourcesManager():
+    """
+    Manages system resources.
+
+    Essentially, this is a glorified counter that has access to information on the System's resources.
+
+    Since Python does garbage collection and memory allocation for us, 
+        we just need to make sure the program is not using more than the system has access to at any given time.
+        Similarly, if there is a limit we put upon a system resource, we need to make sure we do not exceed it.
+    
+    Finally, this information needs to be transmitted to other parts of the program in a controlled manner.
+        This is done by having the manager produce a summary object that can be passed around ever X seconds.
+        This object is a Pydantic BaseModel. As the model can easily be converted to JSONs, this allows for easy logging
+        or use by a DashBoard.
+
+    Attributes:
+    
+    Methods:
+
+    """
 
     def __init__(self, configs: Configs):
         self.configs = configs
         self.max_cores: int = psutil.cpu_count(logical=False)  # Get the number of physical CPU cores
-        self.cores_in_use: int = psutil.cpu_count(logical=True)  # Get the number of logical CPU cores (including hyperthreading)
-        self.memory_available: int = psutil.virtual_memory().available  # Get the amount of available memory in bytes
-        self.memory_in_use: int = psutil.Process().memory_info().rss  # Get the Resident Set Size (RSS) memory used by this process
-        self.gpu_memory_in_use: int = get_gpu_memory()  # Get the amount of Available memory for each GPU (in MegaBytes)
+        self.gpu_memory_in_use: int = None # The amount of available memory for each GPU (in MegaBytes)
+        self.available_disk_space: int = psutil.disk_usage('/').free  # Get the amount of available disk space in bytes
 
+
+    def _whichever_value_is_smaller(self, config_value: int, system_value: int) -> int:
+        """
+        Args:
+            config_value (int): The value from the config file.
+            system_value (int): The value from given from the system itself.
+        Returns:
+            int: The smaller of the two values.
+        """
+        if system_value is None or config_value is None:
+            raise ValueError("Both config_value and system_value are None.")
+        else:
+            if system_value is None:
+                return config_value
+            elif config_value is None:
+                return system_value
+            else:
+                return system_value if system_value < config_value else config_value
+
+    @functools.lru_cache(maxsize=3)
+    def get_gpu_memory(self) -> list[int]: 
+        """
+        Get the amount of available VRAM for each GPU (in MegaBytes)
+        If the amount of available VRAM is greater than the amount specified in the config file,
+            then the amount specified in the config file is returned.
+
+        Returns:
+            int: The amount of GPU memory available in bytes as an int.
+        """
+        command = "nvidia-smi --query-gpu=memory.free --format=csv"
+        memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
+        memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
+        return memory_free_values
+
+
+    @functools.lru_cache(maxsize=3)
     def get_available_cores(self) -> int:
         """
         Get the number of available CPU cores from the system.
 
         Returns:
-            int: The number of cores available as an int
+            int: The number of CPU cores available as an int
             If the amount of available CPU cores is greater than the amount specified in the config file,
                 then the amount specified in the config file is returned.
-        """
-        pass
 
+        Examples:
+            >>> # Assume actual cores available is 4
+            >>> configs.max_cores = 40
+            >>> manager = SystemResourceManager(configs)
+            >>> get_available_cores()
+            4
+            >>> configs.max_cores = 2
+            >>> manager = SystemResourceManager(configs)
+            >>> get_available_cores()
+            2
+        """
+        return self._whichever_value_is_smaller(self.configs.max_cpu_cores, self.max_cores)
+
+    @functools.lru_cache(maxsize=3)
     def get_available_memory(self) -> int:
         """
         Get the amount of available system memory from the system.
 
         Returns:
-            SystemResource: The amount of system available in bytes as an int.
+            int: The amount of system available (in bytes) as an int.
             If the amount of available system memory is greater than the amount specified in the config file,
                 then the amount specified in the config file is returned.
         """
-        pass
+        virtual_memory_available = psutil.virtual_memory().available
+        return self._whichever_value_is_smaller(self.configs.max_program_memory, virtual_memory_available)
 
     def get_available_gpu_memory(self) -> int:
         """
-        Get the amount of available GPU memory from the system.
 
-        Returns:
-            SystemResource: The amount of GPU memory available in bytes as an int.
-            If the amount of available GPU memory is greater than the amount specified in the config file,
-                then the amount specified in the config file is returned.
         """
-        pass
+        available_gpu_memory = self.get_gpu_memory()  
 
     def update(self, call_every: int = 5) -> Generator[SystemResource, None, None]:
         """
@@ -561,69 +325,12 @@ class PooledResource(BaseModel):
         pass
 
 
-class Resource(BaseModel):
-    api_connection: list[ApiConnection] = None
-    func: list[dict[str, Callable]] | list[dict[str,Coroutine]] = None
-    gpu_mem: int = None
-    thread: int = None
-    sys_mem: int = None
-    file_path: list[Path] = None
 
-    _use_count: int = PrivateAttr(default=0)
-
-    def __iter__(self):
-        return self
-
-    def __aiter__(self):
-        return self
-
-    def __next__(self):
-        return
-
-    async def __anext__(self):
-        if self.api_connection:
-            yield self.api_connection.pop(0)
-        if self.func:
-            for func in self.func:
-                yield func
-        if self.gpu_mem:
-            yield self.gpu_mem
-        if self.thread:
-            yield self.thread
-        if self.sys_mem:
-            yield self.sys_mem
-        if self.file_path:
-            yield self.file_path.pop(0)
-        raise StopAsyncIteration
-
-    def request(self, requested_items: dict[str, Any]):
-        pass
-
-    def create(self) -> T:
-        """Create the actual resource."""
-        pass
-
-    def validate(self) -> bool:
-        """Validate the resources are still healthy."""
-        pass
-
-    def cleanup(self):
-        """Cleanup the resources when destroying it."""
-        pass
-
-    def mark_in_use(self):
-        self.state = ResourceState.IN_USE
-        self.last_used_at = time.time()
-        self.use_count += 1
-
-    def get_resource(self) -> T:
-        if self._resource is None:
-            self._resource = self.create()
-        return self._resource
 
 # Type definitions
 T = TypeVar('T')
-E = TypeVar('E')
+E = TypeVar('E') # Error
+U = TypeVar('U') # Unit
 
 @dataclass
 class Either(Generic[E, T]):
@@ -649,6 +356,208 @@ class Either(Generic[E, T]):
         return self
 
 
+@dataclass
+class Result(Generic[T]):
+    value: T | Exception
+
+    def map(self, func: Callable[[T], U]) -> "Result[U | Exception]":
+        if isinstance(self.value, Exception):
+            return self
+        try:
+            return Result(func(self.value))
+        except Exception as e:
+            return Result(e)
+
+@dataclass
+class Promise(Generic[T]):
+    executor: Callable[[], T]
+    _value: Optional[T] = None
+    _error: Optional[Exception] = None
+    _is_fulfilled: bool = False
+
+    def then(self, callback: Callable[[T], U]) -> 'Promise[U]':
+        def new_executor():
+            try:
+                result = self.executor()
+                self._value = result
+                self._is_fulfilled = True
+                return callback(result)
+            except Exception as e:
+                self._error = e
+                raise e
+        return Promise(new_executor)
+
+    def catch(self, error_handler: Callable[[Exception], U]) -> 'Promise[U]':
+        def new_executor():
+            try:
+                return self.executor()
+            except Exception as e:
+                self._error = e
+                return error_handler(e)
+        return Promise(new_executor)
+
+    def finally_(self, final_callback: Callable[[], None]) -> 'Promise[T]':
+        def new_executor():
+            try:
+                result = self.executor()
+                return result
+            finally:
+                final_callback()
+        return Promise(new_executor)
+
+    @property
+    def value(self) -> Optional[T]:
+        return self._value
+
+    @property
+    def error(self) -> Optional[Exception]:
+        return self._error
+
+    @property
+    def is_fulfilled(self) -> bool:
+        return self._is_fulfilled
+
+from typing import Awaitable, Coroutine
+
+from dataclasses import dataclass
+from typing import Generic, TypeVar, Optional, Callable, Awaitable, Protocol
+from contextlib import AbstractContextManager
+import asyncio
+from abc import ABC, abstractmethod
+
+class Disposable(Protocol):
+    async def dispose(self) -> None: ...
+
+
+class ManagedResource(Generic[T]):
+    """
+    Wrapper for resources that need managed cleanup.
+    """
+    def __init__(self, value: T, cleanup: Optional[Callable[[], Awaitable[None]]] = None):
+        self.value = value
+        self._cleanup = cleanup
+
+    async def dispose(self) -> None:
+        if self._cleanup:
+            await self._cleanup()
+
+
+@dataclass
+class AsyncPromise(Generic[T]):
+    """
+    An asynchronous version of a Promise Monad.
+    It allows for chaining of async functions, handling of errors, and producing intermediate side-effect objects.
+    
+    Examples:
+        resource = Resource(
+                path=FilePath('path/to/file.json'),
+                api_connection=ApiConnection,
+                threads=1,
+                func=[ # NOTE: sys_mem is allocated to the function AND to hold the loaded file.
+                    {'step': 1, 'name': 'open_json', sys_mem': 512}, 
+                    {'step': 2, 'name': 'convert_json', 'sys_mem': 512, 'api_uses': 1, 'gpu_mem': 1024},
+                    {'step': 3, 'name': 'save_json', 'sys_mem': 256}
+                ], 
+                total_gpu_mem=1024, # Add up all the gpu_mem from the func list
+                total_sys_mem=1280, # Add up all the sys_mem from the func list
+                total_api_uses=1, # Add up all the api_uses from the func list
+                data=None, # Data from the file that is being processed. Should be in bytes
+            )
+
+        def open_json(resource: BaseModel) -> Resource:
+            with open(resource.path, 'r') as f:
+                resource.data = json.load(f)
+            return resource
+
+        async def convert_json(resource: BaseModel) -> BaseModel:
+           resource.data = await resource.client.api_call(resource.data)
+           return resource
+
+        async def save_json(resource: BaseModel) -> BaseModel:
+            resource.num = await resource.client.api_call(n)
+            return resource
+
+        # Usage in chain.
+        result = await AsyncPromise(async_function, resource) \
+            .then(other_async_function) \
+            .then(async_function_with_api_call, dispose_after=resource.client) \
+            .catch(lambda e: print(e)) \
+            .finally(lambda: print("done")) \
+
+    """
+    executor: Callable[[], Awaitable[T]]
+    _value: Optional[T] = None
+    _error: Optional[Exception] = None
+    _is_fulfilled: bool = False
+    _is_pending: bool = True
+
+    async def _execute(self) -> T:
+        if not self._is_pending:
+            if self._error:
+                raise self._error
+            assert self._value is not None
+            return self._value
+            
+        try:
+            result = await self.executor()
+            self._value = result
+            self._is_fulfilled = True
+            return result
+        except Exception as e:
+            self._error = e
+            raise
+        finally:
+            self._is_pending = False
+
+    async def then(self, callback: Callable[[T], Awaitable[U]]) -> 'AsyncPromise[U]':
+        async def new_executor():
+            try:
+                result = await self.executor()
+                self._value = result
+                self._is_fulfilled = True
+                return await callback(result)
+            except Exception as e:
+                self._error = e
+                raise e
+        return AsyncPromise(new_executor)
+
+    async def catch(self, error_handler: Callable[[Exception], Awaitable[T]]) -> 'AsyncPromise[U]':
+        async def new_executor():
+            try:
+                return await self.executor()
+            except Exception as e:
+                self._error = e
+                return error_handler(e)
+        return AsyncPromise(new_executor)
+
+    async def finally_(self, final_callback: Callable[[], None]) -> 'AsyncPromise[T]':
+        async def new_executor():
+            try:
+                result = await self.executor()
+                return result
+            finally:
+                final_callback()
+        return AsyncPromise(new_executor)
+
+    @property
+    def value(self) -> Optional[T]:
+        return self._value
+
+    @property
+    def error(self) -> Optional[Exception]:
+        return self._error
+
+    @property
+    def is_fulfilled(self) -> bool:
+        return self._is_fulfilled
+
+    @property
+    def side_effect(self) -> Optional[U]:
+        return self._side_effect
+
+
+
+
 class Converter:
 
     def __init__(self, resource: Resource, configs: Configs):
@@ -658,40 +567,63 @@ class Converter:
     async def source(self) -> str:
         pass
 
-    async def drain(self) -> str:
-        pass
- 
-    async def convert(self, url: str) -> DocumentConverterResult:
+    async def sink(self) -> str:
         pass
 
+    async def convert(self, resource: str) -> DocumentConverterResult:
+        """
+        Convert a document from one format to plaintext.
+        The format of the plaintext is Markdown.
+        
+        
+        """
+        pass
 
 
-
-
+from pools.non_system_resources.api_connection_pool.api_connections_pool import ApiConnectionPool
 
 
 
 class Pool():
 
-    def __init__(self, configs: Configs):
+    def __init__(self, resource: Resource, configs: Configs):
         self.configs = configs
-        self.gpu_mem: int = None
-        self.sys_mem: int = None
-        self.api_connections: int = None
+
+        self.pool_name: str = None
+
+        self.max_allowed_gpu_usage_in_bytes: int = None
+        self.current_gpu_mem_in_bytes: int = None
+        self.available_sys_mem_in_bytes: int = None
+        self.max_allowed_sys_mem_in_bytes: int = None
+        self.max_allowed_api_connections: int = None 
+        self.available_api_connections: int = None
         self.func: dict[str, int] = None
-        self.file_paths: list[Path]
+        self.max_allowed_file_paths: list[str]
+        self.available_file_paths: set[str]
 
         self._initialize_pool()
 
-    def _initialize_pool(self):
+    def _initialize_pool(self) -> None:
         """
         Start up the pool with the initial resources.
+            For pools involving system resource, this involves setting their counters to the maximum allowed.
+            For the file path pool, this involves getting the CIDs in the current batch and storing them in the pool.
+            For the API connection pool, this involves taking the Connection objects and storing them in a Queue with a lock.
+                It should be based on the Pool system 
+        Args:
+            None
+
+        Returns:
+            None
         """
         pass
 
     def put(self, resource: Resource):
         """
-        Put a resource back into the pool.
+        Put a Resource back into the pool.
+            For pools involving system resource, this involves incrementing their counters.
+            For the file path pool, this involves adding the CID back to the pool.
+            For the API connection pool, this involves putting the Connection object back into the Queue.
         
         """
         pass
@@ -699,7 +631,7 @@ class Pool():
     def dispense(self) -> Generator[Resource]:
         """
         Dispense a resource from the pool.
-        It does so by creating a Resource on-the-fly and yield it.
+        It does so by creating a Resource on-the-fly and yielding it.
 
         """
         pass
@@ -713,14 +645,40 @@ class Pool():
         pass
 
 
+from types import TracebackType
+import queue
+import random
+import re
+import threading
+
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional, Tuple, Type, Union
+from uuid import uuid4
+
+
+API_CONNECTION_POOL_LOCK = threading.RLock()
+CNX_POOL_MAXSIZE = 32
+CNX_POOL_MAXNAMESIZE = 64
+CNX_POOL_NAMEREGEX = re.compile(r"[^a-zA-Z0-9._:\-*$#]")
+ERROR_NO_CEXT = "MySQL Connector/Python C Extension not available"
+# MYSQL_CNX_CLASS: Union[type, Tuple[type, ...]] = (
+#     MySQLConnection if CMySQLConnection is None else (MySQLConnection, CMySQLConnection)
+# )
+
+_CONNECTION_POOLS: Dict[str, ApiConnectionPool] = {}
+
+
+
+
 
 class Pools():
 
-    def __init__(self, configs: Configs):
+    def __init__(self, configs: Configs, health_monitor: 'PoolHealthMonitor'):
         self.configs = configs
 
-        self.pool: Pool = self.create_pool(configs)
-        self.api_pool: Pool = self.create_pool(configs)
+        # Special pool for API connections.
+        self.api_pool: ApiConnectionPool = self.create_api_pool(configs)
+
         self.func_pool: Pool = self.create_pool(configs)
         self.gpu_mem_pool: Pool = self.create_pool(configs)
         self.thread_pool: Pool = self.create_pool(configs)
@@ -755,12 +713,13 @@ class Pools():
            remains the same amount. For connections, this means that the connection will be closed (???).
 
         For API connections, the pool is a traditional connection pool a la MySQL. 
-            When a Resource object is created, a connection is allocated to the Resource.
+            When a Resource object is created, a Connection is allocated to the Resource.
             When the Resource object is consumed, the connection is returned to the pool.
             If the pool is empty, a new connection is requested from the External Resource Manager 
             and added to the pool.
 
         API connections are refreshed periodically to ensure that they are still valid.
+            This is especially important for loaded models like LLMs.
 
         Args:
             configs (Configs): The configuration for the pool.
@@ -769,6 +728,10 @@ class Pools():
            Pool: The instantiated pool.
         """
         return Pool(configs)
+
+    def create_api_pool(self) -> 'Pool':
+        """
+        """
 
     def check_what_resources_the_core_manager_needs(self) -> bool:
         """
@@ -779,7 +742,7 @@ class Pools():
         """
         pass
 
-    def make_a_resource() -> Generator[Resource]:
+    def make_a_resource() -> Generator['Resource', None, None]:
         """
         Construct a Resource by taking items from the pools, then yield it.
         When a resource is yielded, it is removed from the pools, and the pool states are updated to reflect
@@ -867,12 +830,18 @@ class Pools():
         """
         pass
 
+    def need_a_resource(self):
+        """
+        
+        """
+        pass
+
+
 
 class PoolHealthMonitor:
 
-    def __init__(self, configs: Configs, pools: Pools):
+    def __init__(self, configs: Configs):
         self.configs = configs
-        self.pools = pools
 
     def check_pool_health(configs) -> None:
         pass
@@ -886,7 +855,7 @@ class ExternalResourcesManager():
         self.api_connections = utility_classes.pop("api_connections")
         self.system_resources = utility_classes.pop("system_resources")
 
-    def create_resource(self, paths, system_resources, api_connections) -> AsyncGenerator[Resource]:
+    def create_resource(self, paths, system_resources, api_connections) -> AsyncGenerator[None, None, Resource]:
         """
         Create a Resource from the available paths, system resources, and API connections.
         
@@ -1075,7 +1044,7 @@ class Processor:
 
     def compose(resource: Resource) -> Either:
         """
-        Take functions from a resourec and compose them into a chain.
+        Take functions from a resource and compose them into a chain.
 
         The chain is a list of functions and/or coroutines that will be executed in order.
         """
@@ -1098,7 +1067,16 @@ def figure_out_what_resources_we_need_for_this(file):
     pass
 
 
+import threading
 
+
+
+from external_interface.config_parser.config_parser import ConfigParser
+
+class ApiManager:
+    
+    def __init__(self, configs: Configs):
+        pass
 
 
 async def main():
@@ -1112,47 +1090,50 @@ async def main():
         parser = ConfigParser()
         configs = parser.load_and_parse_configs_file()
 
-
     next_step("Step 2: Create and start the File Paths Manager")
-    file_paths_manager = instantiate(this_class=FilePathsManager, with_these=configs)
+    file_paths_manager = FilePathsManager(configs)
 
+    # To access the file_paths_manager later:
+    # file_paths_manager = getattr(file_paths_manager_thread, 'file_paths_manager', None)
 
-    next_step("Step 3: Create and start the LLM API.")
-    llm_api_manager = instantiate(this_class=LlmApiManager, with_these=configs)
-
+    next_step("Step 3: Create and start the API Manager.")
+    llm_api_manager = ApiManager(configs)
 
     next_step("Step 4: Create and start the System Resources Manager.")
-    system_resources_manager = instantiate(this_class=SystemResourcesManager, with_these=configs)
-
+    system_resources_manager = SystemResourcesManager(configs)
 
     next_step("Step 5: Create and start the External Resource Manager.")
-    classes = {
-        'file_paths_manager':file_paths_manager, 
-        'llm_api_manager':llm_api_manager, 
-        'system_resources_manager':system_resources_manager
+    external_interface_classes = {
+        'file_paths_manager': file_paths_manager, 
+        'llm_api_manager': llm_api_manager, 
+        'system_resources_manager': system_resources_manager
     }
-    # NOTE This should run in its own thread.
-    the_erm = instantiate(this_class=ExternalResourcesManager, with_these=configs, and_these=classes)
 
+    # NOTE This should run in its own thread.
+    the_erm = ExternalResourcesManager(configs, external_interface_classes)
 
     next_step("Step 6: Create and start the Core Resource Manager.")
     # NOTE This should run in its own thread.
-    the_core = instantiate(this_class=CoreResourceManager, with_these=configs)
-
+    the_core_manager = CoreResourceManager(configs)
 
     next_step("Step 7: Create and start the Pool Health Monitor.")
-    pool_health_monitor = instantiate(this_class=PoolHealthMonitor, with_these=configs, and_these=[the_pools])
+    # NOTE Should be instantiated inside the pools
+    pool_health_monitor = PoolHealthMonitor(configs)
 
 
     next_step("Step 8: Create and start the Pools.")
     # NOTE This should run in its own thread.
-    the_pools = instantiate(this_class=Pools, with_these=configs, and_these=pool_health_monitor)
+    the_pools = Pools(configs, pool_health_monitor)
 
 
-    next_step("Step 9: Start the main loop.")
+    next_step("Step 9: Instantiate a queue of files and fill it up.")
+    the_queue = FilePathQueue(configs)
+
+
+    next_step("Step 10: Start the main loop.")
     while True:
 
-        next_step("Step 10: Generate a resource.")
+        next_step("Step 11: Generate a resource.")
         async for this_resource in the_erm.resources:
 
             next_step("Step 11: Check if the pool needs a resource.")
@@ -1164,26 +1145,25 @@ async def main():
                 the_erm.gets_back(this_resource)
 
             next_step("Step 13: Send a resource to the CoreResourceManager if the CoreResourceManager needs it.")
-            if the_core.needs_a_resource():
+            if the_core_manager.needs_a_resource():
                 the_pools_resource = the_pools.make_a_resource()
-                the_core.receives(the_pools_resource)
+                the_core_manager.receives(the_pools_resource)
 
             next_step("Step 14: Return a resource to the ExternalResourcesManager if the CoreResourceManager doesn't need it.")
-            if the_core.doesnt_need_a_resource_anymore():
-                that_resource = the_core.returns_that_resource()
+            if the_core_manager.doesnt_need_a_resource_anymore():
+                that_resource = the_core_manager.returns_that_resource()
                 the_erm.gets_back(that_resource)
 
         # NOTE: We can run sync functions in an async loop, but not vice-versa.
-        for file, resources in the_core:
-            next_step("Step 15: Instantiate a queue of files and fill it up.")
-            the_queue = FilePathQueue(configs)
+        for file, resources in the_core_manager:
+
             if await the_queue.is_not_full():
                 await the_queue.add_this(file)
 
             async for file in the_queue:
                 next_step("Step 16: Figure out what resources we need, then allocate them.")
                 what_we_need = figure_out_what_resources_we_need_for_this(file)
-                allocated_resources = the_core.gives_us(what_we_need, from_these=resources)
+                allocated_resources = the_core_manager.gives_us(what_we_need, from_these=resources)
 
                 next_step("Step 17: Actually convert the file.")
                 # NOTE This should run in its own thread.
@@ -1191,17 +1171,17 @@ async def main():
                 try:
                     next_step("Step 18: As we run through the conversion steps, give resources back to the Core Resource Manager.")
                     async for this_used_resource in this_specific_processor:
-                        the_core.receives(this_used_resource)
+                        the_core_manager.receives(this_used_resource)
                 except:
                     ("Step 18b: Return remaining resources to the pool on failure.")
                     # NOTE: We don't care why it failed, we just want to make sure we get our resources back.
                     # It's all about keeping everything going!
                     the_leftover_resources = await this_specific_processor.returns_leftover_resources()
-                    the_core.receives(the_leftover_resources)
+                    the_core_manager.receives(the_leftover_resources)
                 finally:
                     next_step("Step 19: Return all the left over resources to the pool.")
                     the_leftover_resources = await this_specific_processor.returns_leftover_resources()
-                    the_core.receives(the_leftover_resources)
+                    the_core_manager.receives(the_leftover_resources)
                     the_queue.removes_this(file)
 
 

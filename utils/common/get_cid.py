@@ -9,7 +9,7 @@ import os
 
 class IpfsMultiformats:
 
-    def __init__(self, resources: Any, metadata: Any):
+    def __init__(self):
         return None
 
     # Step 1: Hash the file content with SHA-256
@@ -61,20 +61,22 @@ class IpfsMultiformats:
         """
 
         if os.path.isfile(file_data):
-            file_content_hash = self.get_file_sha256(file_data)
-            mh = self.get_multihash_sha256(file_content_hash)
-            cid = CID('base32', 'raw', mh)
-
-        else:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                filename = f.name
-                with open(filename, 'w') as f_new:
-                    f_new.write(file_data)
-
-                file_content_hash = self.get_file_sha256(filename)
+            print("Making file hash...")
+            if os.path.getsize(file_data) > 0:
+                print("Empty file. Defaulting to temp file.")
+                file_content_hash = self.get_file_sha256(file_data)
                 mh = self.get_multihash_sha256(file_content_hash)
                 cid = CID('base32', 1, 'raw', mh)
-                os.remove(filename)
+
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            filename = f.name
+            with open(filename, 'w') as f_new:
+                f_new.write(file_data)
+
+            file_content_hash = self.get_file_sha256(filename)
+            mh = self.get_multihash_sha256(file_content_hash)
+            cid = CID('base32', 1, 'raw', mh)
+        os.remove(filename)
 
         return str(cid)
 

@@ -9,7 +9,8 @@ from typing import Any
 from pydantic import ValidationError
 
 
-from utils.config_parser.config_parser import ConfigParser, Configs
+from external_interface.config_parser.config_parser import ConfigParser, Configs
+
 
 # NOTE Passed all these tests, but they also kept overwriting the configs.yaml file.
 class TestConfigParserValidation:

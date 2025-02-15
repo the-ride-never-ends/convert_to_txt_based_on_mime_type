@@ -192,7 +192,7 @@ flowchart TB
 
     subgraph utils["Utilities"]
         PathManager
-        LlmApiManager
+        ApiManager
         SystemResourceManager
         ExternalResourceManager
     end
@@ -230,10 +230,10 @@ flowchart TB
 
     
     system <--> |System Resources| SystemResourceManager
-    llm_service <--> |LLM API Connections| LlmApiManager
+    llm_service <--> |LLM API Connections| ApiManager
 
     SystemResourceManager --> |System Resources| ExternalResourceManager
-    LlmApiManager --> |LLM API Connections| ExternalResourceManager
+    ApiManager --> |LLM API Connections| ExternalResourceManager
     PathManager ==> |File Paths & Metadata| ExternalResourceManager
 
     files ==> |File Paths| PathManager
@@ -300,7 +300,7 @@ flowchart TB
     %% Utilities %%
     Logger@{ shape: procs, label: "Logger(s)"}
     ConfigParser[Config Parser]
-    LlmApiManager["LLM API"]
+    ApiManager["LLM API"]
     SystemResourceManager[System Resource Manager]
     ExternalResourceManager[External Resource Manager]
 
@@ -332,7 +332,7 @@ Rationale:
 | Building Blocks | Description | Techniques |
 |-----------------|-------------|------------|
 | FileLoader      |             | Lazy Loading |
-| LlmApiManager   | Construct API connections to LLM services. |  |
+| ApiManager   | Construct API connections to LLM services. |  |
 
 
 

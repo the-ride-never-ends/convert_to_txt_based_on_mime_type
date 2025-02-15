@@ -23,11 +23,7 @@ import yaml
 
 
 from pydantic_models.configs import Configs
-from utils.config_parser._print_configs_on_startup import _print_configs_on_startup
-
-
-
-
+from external_interface.config_parser._print_configs_on_startup import _print_configs_on_startup
 
 
 

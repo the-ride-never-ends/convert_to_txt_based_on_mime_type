@@ -1,6 +1,6 @@
 
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Type, Self
 
 
 from pydantic import GetCoreSchemaHandler
@@ -26,9 +26,10 @@ class ValidPath(Path):
         )
     
     @classmethod
-    def validate(cls, value: Any) -> "ValidPath":
+    def validate(cls, value: Any) -> Self:
         if isinstance(value, str):
             return cls(value)
         elif isinstance(value, Path):
             return cls(str(value))
-        raise ValueError(f"Cannot convert {value} to Path")
+        else:
+            raise ValueError(f"Cannot convert {value} to Path")

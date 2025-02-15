@@ -27,7 +27,7 @@ class Logger:
 
     def __init__(self, 
                  name: str, 
-                 level: int = logging.INFO, 
+                 level: int = logging.DEBUG, 
                  log_folder: Path = Path("logs"),
                  stacklevel: int = 2
                 ):
@@ -40,7 +40,7 @@ class Logger:
 
         self._setup_log_folder()
         self._setup_logger()
-        print(f"Logger {self.name} initialized with level {self.level} and log folder {self.log_folder}")
+        print(f"Logger '{self.name}' initialized with debug level '{self.level}' in log folder '{self.log_folder}'")
 
     def _setup_log_folder(self):
 
@@ -56,7 +56,7 @@ class Logger:
             with self.log_file.open("w") as file:
                 # Hacky way to make sure each can be turned into a JSON file.
                 file.write('{\n    "entries": []\n}')
-        print(f"Log file created at {self.log_file}")
+            print(f"Log file created at {self.log_file}")
 
 
     def _setup_logger(self):

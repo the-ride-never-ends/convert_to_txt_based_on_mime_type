@@ -4,10 +4,10 @@ docintel_endpoint: http://www.example2.com
 input_folder: input
 llm_api_key: abcde123456
 llm_api_url: http://www.example.com
-log_level: INFO
+log_level: DEBUG
 max_connections_per_api: 3
-max_memory: 1024
-max_threads: 4
+max_program_memory: 1024
+max_cpu_cores: 4
 output_folder: output
 pool_health_check_rate: 30
 pool_refresh_rate: 60

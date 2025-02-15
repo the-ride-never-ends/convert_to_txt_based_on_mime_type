@@ -17,7 +17,8 @@ class ExternalResourceManager():
 
 
 
-
+    def export_to_pools():
+        pass
 
 
 

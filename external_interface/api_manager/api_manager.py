@@ -6,10 +6,13 @@ from pydantic import BaseModel
 
 
 from pydantic_models.configs import Configs, Paths
+from pydantic_models.resource.api_connection import ApiConnection
+
+
 
 
 import json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 class SupportedTransformersModels(BaseModel):
     model: dict[str, Any] = Field(default_factory=dict)
@@ -55,24 +58,20 @@ class ModelType(Enum):
     CLASSIFIER = "classifier"
 
 
-class ApiConnection(BaseModel):
-    client: Any = None
-    model: Any = None
-    provider: SupportedProviders = None
-    model_type: ModelType = None
+import aiohttp
+from aiohttp import ClientResponse
 
 
-class LlmApiManager():
+class ApiManager():
     
     def __init__(self, configs: Configs):
-        self.configs = configs
         self.max_connections_per_api: int = configs.max_connections_per_api if configs.can_use_llm else 0
         self.connections_in_use: int = 0
         self.supported_models: BaseModel = SupportedTransformersModels.from_json(
             Paths.PROJECT_ROOT / "mapped_models.json"
         )
 
-    def generate_api_connection(self) -> ApiConnection:
+    def acquire(self) -> ApiConnection:
         """
         Create an API connection based on the configuration.
         This configuration is determined by the kind of API specified in the Config file.
