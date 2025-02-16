@@ -7,14 +7,9 @@ from typing import ClassVar, Self
 
 from pydantic import BaseModel, field_validator, computed_field
 
-from .md5_checksum import md5_checksum
-from .file_path import FilePath
-from .mime_type import MimeType
-from pydantic_models.configs import Configs
-from utils.common.get_cid import get_cid
 
-
-from .supported_mime_types import (
+from external_interface.file_paths_manager.mime_type import MimeType
+from external_interface.file_paths_manager.supported_mime_types import (
     SupportedMimeTypes,
     SupportedApplicationTypes,
     SupportedAudioTypes,
@@ -23,6 +18,11 @@ from .supported_mime_types import (
     SupportedVideoTypes
 )
 
+from pydantic_models.file_paths_manager.file_path import FilePath
+from pydantic_models.configs import Configs
+
+from utils.common.get_cid import get_cid
+from utils.file_paths_manager.md5_checksum import md5_checksum
 
 
 class FilePathAndMetadata(BaseModel):
@@ -32,7 +32,7 @@ class FilePathAndMetadata(BaseModel):
     Attributes:
        file_path (FilePath): The path to the file.
        cid (str): Content Identifier (CID) of the file's path.
-    
+
     Properties:
         file_name (str): The name of the file without the extension.
         file_extension (str): The extension of the file, including the dot.
@@ -41,7 +41,6 @@ class FilePathAndMetadata(BaseModel):
         checksum (str): The MD5 checksum of the file.
         created_timestamp (datetime): The creation timestamp of the file.
         modified_timestamp (datetime): The last modification timestamp of the file.
-
 
     Example JSON:
     >>> {
@@ -62,7 +61,6 @@ class FilePathAndMetadata(BaseModel):
 
     @classmethod
     def set_max_program_memory(cls, value: int):
-        """Set the max program memory class variable"""
         cls.max_program_memory = value
 
     def __init__(self, **data):

@@ -23,6 +23,8 @@ ERROR_NO_CEXT = "MySQL Connector/Python C Extension not available"
 
 _CONNECTION_POOLS: Dict[str, ApiConnectionPool] = {}
 
+class Error(Exception):
+    pass
 
 class InterfaceError(Exception):
     pass
@@ -40,7 +42,7 @@ class ProgrammingError(Exception):
 MYSQL_CNX_CLASS = None
 
 
-from utils.llm_api_manager.llm_api_manager import ApiConnection, ApiManager
+from external_interface.api_manager.api_manager import ApiConnection, ApiManager
 from pydantic_models.configs import Configs
 from logger.logger import Logger
 
@@ -78,6 +80,9 @@ def _get_pooled_connection(**kwargs: Any) -> PooledApiConnection:
             f"Failed getting connection from pool '{pool_name}'"
         ) from None
 
+
+def read_option_files(**kwargs):
+    return {key: value for key, value in kwargs} 
 
 
 def connect(

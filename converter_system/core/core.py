@@ -1,11 +1,13 @@
 import asyncio
+from asyncio import AbstractEventLoop
 from collections import Counter
 import concurrent.futures as cf
+import itertools
 import logging
 from queue import Queue
 import time
 import threading
-from typing import Any, AsyncGenerator, AsyncIterator, Generator, Iterator, Optional, TypeVar
+from typing import Any, AsyncGenerator, AsyncIterator, AsyncIterable, Generator, Iterator, Iterable, Optional, TypeVar
 
 
 from pydantic_models.configs import Configs
@@ -15,14 +17,7 @@ from logger.logger import Logger
 
 T = TypeVar('T')
 
-
 logger = Logger(__name__)
-
-
-
-@asyncio.coroutine
-def gather(l: Any) -> Generator:
-    return (yield from asyncio.gather(*l, return_exceptions=True))
 
 
 class AsyncStreamProcessor:
@@ -122,37 +117,165 @@ class ResourceGenerator:
             yield resource
             remaining -= 1
 
+from converter_system.file_path_queue.file_path_queue import FilePathQueue
+from converter_system.core_error_manager.core_error_manager import CoreErrorManager
+from converter_system.core_resource_manager.core_resource_manager import CoreResourceManager
+
 class Core:
+
     def __init__(self, configs: Configs):
+
+        self.file_path_queue = FilePathQueue(configs)
+        self.core_error_manager = CoreErrorManager(configs)
+        self.core_resource_manager = CoreResourceManager(configs)
+
         self.loop = asyncio.get_event_loop()
         self.semaphore = asyncio.Semaphore(configs.concurrency_limit)
+
         self.stream_processor = AsyncStreamProcessor(
             max_workers=configs.concurrency_limit # TODO
         )
 
-    async def process_resource(self, resource: Resource) -> Counter:
-        """Process a single resource"""
-        async with self.semaphore:
-            pipeline = (
-                Async(resource.load())
-                >> gather
-                >> (lambda x: filter(lambda: not isinstance(x, Exception), x))
-                >> (lambda x: map(lambda: resource.convert(x), x))
-                >> gather
-                >> (lambda x: filter(lambda s: not isinstance(s, Exception), x))
-                >> (lambda x: map(lambda: resource.save(x), x))
-                >> Counter
-            )
-            return await pipeline.future
+    async def run_pipelines_in_parallel(self, resource_stream: AsyncIterable[Resource]):
+        """
+        Run a stream of pipelines in parallel using both process and thread pools with just-in-time scheduling.
+        
+        Args:
+            resource_stream: AsyncGenerator yielding resources to process
+            process_concurrency: Max number of concurrent processes
+            thread_concurrency: Max number of concurrent threads
+        
+        Yields:
+            Tuples of (input, output) as processing completes
+        """
+        pass
 
-    async def process_stream(self, 
-                           resource_stream: Iterator[Resource]) -> AsyncIterator[Counter]:
-        """Process a stream of resources in parallel"""
+    async def run_pipeline_in_process_pool(self, resource_stream: AsyncIterable[Resource]):
+        """
+        Run a pipeline in a process pool.
+
+        ``handler`` should be a function that takes a single input, which is the
+        individual values in the iterable ``inputs``.
+
+        Generates (input, output) tuples as the calls to ``handler`` complete.
+
+        See https://alexwlchan.net/2019/10/adventures-with-concurrent-futures/ for an explanation
+        of how this function works.
+        """
+        # Make sure we get a consistent iterator throughout, rather than
+        # getting the first element repeatedly.
+        iter_inputs = iter(resource_stream)
+
+        with cf.ProcessPoolExecutor() as executor:
+
+            # Schedule the first N futures.  We don't want to schedule them all
+            # at once, to avoid consuming excessive amounts of memory.
+            futures = {
+                executor.submit(
+                    input.resource.pipeline.run(), 
+                    input.resource
+                ): input
+                for input in itertools.islice(iter_inputs, self.core_resource_manager.free_workers)
+            }
+
+            # Wait for the next future to complete. 
+            while futures:
+                done, _ = cf.wait(
+                    futures, return_when=cf.FIRST_COMPLETED
+                )
+
+                for future in done:
+                    original_input = futures.pop(future)
+                    yield original_input, future.result()
+
+                # Schedule the next set of futures.  We don't want more than N futures
+                # in the pool at a time, to keep memory consumption down.
+                for input in itertools.islice(iter_inputs, len(done)):
+                    future = executor.submit(
+                        input.resource.pipeline.run(), 
+                        input.resource
+                    )
+                    futures[future] = input
+
+
+    async def run_pipeline_in_thread_pool(self, 
+                resource_stream: AsyncIterable[Resource], 
+                loop: AbstractEventLoop
+            ):
+        """
+        Calls the function ``handler`` on the values ``inputs``.
+
+        ``handler`` should be a function that takes a single input, which is the
+        individual values in the iterable ``inputs``.
+
+        Generates (input, output) tuples as the calls to ``handler`` complete.
+
+        See https://alexwlchan.net/2019/10/adventures-with-concurrent-futures/ for an explanation
+        of how this function works.
+
+        """
+        # Make sure we get a consistent iterator throughout, rather than
+        # getting the first element repeatedly.
+        iter_inputs = iter(resource_stream)
+
+        with cf.ThreadPoolExecutor() as executor:
+            futures = {
+                loop.run_in_executor(
+                    executor, input.resource.pipeline.run(), input.resource): input
+                for input in itertools.islice(iter_inputs, self.core_resource_manager.free_workers)
+            }
+
+            while futures:
+                done, _ = cf.wait(
+                    futures, return_when=cf.FIRST_COMPLETED
+                )
+
+                for fut in done:
+                    original_input = futures.pop(fut)
+                    yield original_input, fut.result()
+
+                for input in itertools.islice(iter_inputs, len(done)):
+                    fut = loop.run_in_executor(
+                        executor, input.resource.pipeline.run(), 
+                        self.core_resource_manager.free_workers
+                    )
+                    futures[fut] = input
+
+
+
+    async def process_stream(self, resource_stream: Iterator[Resource]) -> AsyncIterator[Counter]:
+        """
+        Process a stream of resources in parallel
+        """
         async for result in self.stream_processor.process_stream(
             resource_stream,
             lambda r: self.loop.run_until_complete(self.process_resource(r))
         ):
             yield result
+
+
+    async def optimize(resources: Iterable[Resource], *, batch_size=1024) -> AsyncGenerator:
+
+        input_queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        for resource in resources:
+            if resource.prefer == "thread":
+                input = ThreadInput(resource=resource)
+            else:
+                input = ProcessInput(resource=resource)
+
+            await input_queue.put(input)
+
+        while input_queue:
+            for input, output in concurrently(input_queue, batch_size, max_concurrency, loop):
+                yield output
+
+
+
+
+
+
 
 # Usage example:
 if __name__ == "__main__":
@@ -168,6 +291,6 @@ if __name__ == "__main__":
         async for result in core.process_stream(generator):
             results.append(result)
             print(f"Processed resource, total complete: {len(results)}")
-    
+
     # Run the pipeline
     core.loop.run_until_complete(main())

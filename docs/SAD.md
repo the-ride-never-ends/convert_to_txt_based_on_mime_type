@@ -151,8 +151,8 @@ User Arguments:
 | max_connections_per_api | Maximum number of concurrent API connections the program can have at any one time. | 3 |
 | max_threads | Maximum number of threads to be used for processing the program can use at any one time. | 4 |
 | batch_size | Number of files to be processed in a single batch. | 1024 |
-| llm_api_key | API key for the LLM API. | 123456 |
-| llm_api_url | URL for the LLM API. | www.example.com |
+| api_key | API key for the LLM API. | 123456 |
+| api_url | URL for the LLM API. | www.example.com |
 | use_docintel | Use Document Intelligence to extract text instead of offline conversion. Requires a valid Document Intelligence Endpoint | False |
 | docintel_endpoint | Document Intelligence Endpoint. Required if using Document Intelligence | www.example2.com |
 | version | (CLI only) Version of the program. | 0.1.0 |

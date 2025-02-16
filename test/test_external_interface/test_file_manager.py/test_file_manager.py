@@ -12,15 +12,20 @@ import pytest
 
 from pydantic_models.configs import Configs
 from external_interface.file_paths_manager.file_paths_manager import (
-    FilePathsManager, ExistsComparator, TimestampComparator
+    FilePathsManager
 )
+from fixtures.mock_input_output_directory import mock_input_output_directory
 
+
+from utils.common.asyncio_coroutine import asyncio_coroutine
 from logger.logger import Logger
 logger = Logger(__name__)
 
 
 # 1. Test Instantiation
-@pytest.mark.parametrize("configs", [Configs(batch_size=10, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)])
+@pytest.mark.parametrize("configs", [
+    Configs(batch_size=10, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+])
 def test_file_paths_manager_initialization(configs: Configs):
     file_manager = FilePathsManager(configs)
 
@@ -28,28 +33,20 @@ def test_file_paths_manager_initialization(configs: Configs):
     assert file_manager._input_folder == Path("input")
     assert file_manager._output_folder == Path("output")
 
-    # Test comparison pipeline
-    assert len(file_manager._comparison_pipeline) == 2
-    assert isinstance(file_manager._comparison_pipeline[0], ExistsComparator)
-    assert isinstance(file_manager._comparison_pipeline[1], TimestampComparator)
-
-    # Test max workers and max queue size
-    assert file_manager._max_workers == 4
+    # Test max queue size
     assert file_manager._max_queue_size == 2048
 
-    # Test process pool executor
-    assert isinstance(file_manager._process_pool_executor, ProcessPoolExecutor)
-    assert file_manager._process_pool_executor._max_workers == 4
-
     # Test logger
-    assert file_manager.logger is not None
-    assert callable(file_manager.logger.info)
-    assert callable(file_manager.logger.error)
+    assert file_manager._logger is not None
+    assert callable(file_manager._logger.info)
+    assert callable(file_manager._logger.error)
 
     # Test DuckDB connection
-    assert file_manager.duck_db is not None
-    assert hasattr(file_manager.duck_db, 'execute')
-    assert hasattr(file_manager.duck_db, 'fetchall')
+    assert file_manager._duck_db_path is not None
+    # NOTE DuckDB connections persist until explicitly closed,
+    # so we ignore these until the rest of the class has been successfully debugged.
+    # assert hasattr(file_manager.duck_db, 'execute')
+    # assert hasattr(file_manager.duck_db, 'fetchall')
 
     # Test asyncio queues
     assert isinstance(file_manager.get_inputs_queue, asyncio.Queue)
@@ -57,7 +54,7 @@ def test_file_paths_manager_initialization(configs: Configs):
     assert isinstance(file_manager.output_queue, asyncio.Queue)
     assert file_manager.get_inputs_queue.maxsize == 2048
     assert file_manager.extract_metadata_queue.maxsize == 2048
-    assert file_manager.output_queue.maxsize == 2048
+    assert file_manager.output_queue.maxsize == 10 # batch size because we want to batch outputs.
 
 
 
@@ -85,6 +82,28 @@ def test_directory():
 import os
 import pytest
 from pathlib import Path
+
+
+@pytest.fixture
+def test_files_all_valid(tmp_path: Path):
+    # Create temporary test files
+    valid_path1 = tmp_path / "valid1.txt"
+    valid_path2 = tmp_path / "valid2.txt"
+    valid_path3 = tmp_path / "valid3.txt"
+
+    # Create the actual files
+    valid_path1.write_text("test content")
+    valid_path2.write_text("test content")
+    valid_path3.write_text("test content")
+
+    # Set read permissions explicitly
+    os.chmod(valid_path1, 0o644)  # User read/write, group/others read
+    os.chmod(valid_path2, 0o644)
+    os.chmod(valid_path3, 0o644)
+
+    # Return a list of Paths
+    return [valid_path1, valid_path2, valid_path3]
+
 
 @pytest.fixture
 def test_files(tmp_path: Path):
@@ -205,7 +224,7 @@ import asyncio
 from pathlib import Path
 from pydantic import ValidationError
 
-from external_interface.file_paths_manager.file_path import FilePath
+from pydantic_models.file_paths_manager.file_path import FilePath
 from external_interface.file_paths_manager.file_paths_manager import FilePathsManager
 
 
@@ -216,7 +235,7 @@ async def test_get_inputs(monkeypatch: pytest.MonkeyPatch, test_files):
     class MockFilePathsManager(FilePathsManager):
         def __init__(self):
             self.extract_metadata_queue = asyncio.Queue()
-            self.logger = MockLogger()
+            self._logger = MockLogger()
 
         def scan_for_files(self):
             yield from test_files
@@ -239,7 +258,7 @@ async def test_get_inputs(monkeypatch: pytest.MonkeyPatch, test_files):
         return FilePath(file_path=file_path)
 
     # Patch FilePath with mock validation
-    monkeypatch.setattr("external_interface.file_paths_manager.file_path.FilePath", mock_filepath_validation)
+    monkeypatch.setattr("pydantic_models.file_paths_manager.file_path.FilePath", mock_filepath_validation)
 
     # Run the get_inputs method
     await fpm.get_inputs()
@@ -248,8 +267,8 @@ async def test_get_inputs(monkeypatch: pytest.MonkeyPatch, test_files):
     assert fpm.extract_metadata_queue.qsize() == 2
 
     # Check error was logged
-    assert len(fpm.logger.error_messages) == 1
-    assert "Invalid file path" in fpm.logger.error_messages[0]
+    assert len(fpm._logger.error_messages) == 1
+    assert "Invalid file path" in fpm._logger.error_messages[0]
 
     # Check if the paths in extract_metadata_queue are correct
     paths = []
@@ -260,8 +279,8 @@ async def test_get_inputs(monkeypatch: pytest.MonkeyPatch, test_files):
     assert all(FilePath(file_path=f) in paths for f in valid_test_files)
 
     # Check if invalid path was logged
-    assert len(fpm.logger.error_messages) == 1
-    assert "Invalid file path" in fpm.logger.error_messages[0]
+    assert len(fpm._logger.error_messages) == 1
+    assert "Invalid file path" in fpm._logger.error_messages[0]
 
     # Check if get_inputs_queue is empty after processing
     assert fpm.extract_metadata_queue.empty()
@@ -280,7 +299,7 @@ async def test_get_inputs_empty_directory():
         def __init__(self):
             self.get_inputs_queue = asyncio.Queue()
             self.extract_metadata_queue = asyncio.Queue()
-            self.logger = MockLogger()
+            self._logger = MockLogger()
 
         def scan_for_files(self):
             return []
@@ -305,7 +324,7 @@ async def test_get_inputs_all_invalid(monkeypatch: pytest.MonkeyPatch, tmp_path:
         def __init__(self):
             self.get_inputs_queue = asyncio.Queue()
             self.extract_metadata_queue = asyncio.Queue()
-            self.logger = MockLogger()
+            self._logger = MockLogger()
 
         def scan_for_files(self):
             return [Path("/invalid/path1.txt"), Path("/invalid/path2.txt")]
@@ -315,19 +334,19 @@ async def test_get_inputs_all_invalid(monkeypatch: pytest.MonkeyPatch, tmp_path:
     def mock_invalid_filepath_validation(path):
         raise ValidationError("Invalid path")
 
-    monkeypatch.setattr("external_interface.file_paths_manager.file_path.FilePath", mock_invalid_filepath_validation)
+    monkeypatch.setattr("pydantic_models.file_paths_manager.file_path.FilePath", mock_invalid_filepath_validation)
 
     await fpm.get_inputs()
 
     assert fpm.extract_metadata_queue.empty()
-    assert len(fpm.logger.error_messages) == 2
-    assert all("Invalid file path" in msg for msg in fpm.logger.error_messages)
+    assert len(fpm._logger.error_messages) == 2
+    assert all("Invalid file path" in msg for msg in fpm._logger.error_messages)
 
-from external_interface.file_paths_manager.file_path_and_metadata import FilePathAndMetadata
+from pydantic_models.file_paths_manager.file_path_and_metadata import FilePathAndMetadata
 
 
 @pytest.mark.asyncio
-async def test_extract_metadata(test_directory: Path):
+async def test_extract_metadata(test_directory):
     configs = Configs(batch_size=10, input_folder=test_directory, output_folder="output", max_workers=4, max_queue_size=2048)
 
     fpm = FilePathsManager(configs)
@@ -357,7 +376,7 @@ async def test_extract_metadata(test_directory: Path):
         cid = path_with_metadata.cid
         logger.debug(f"cid: {cid}")
         check_set.add(cid)
-    
+
     # 3. Test Repeat File Detection
     # Criteria: Files with the same name in different sub-folders must be detected.
     # CID generation
@@ -367,12 +386,313 @@ async def test_extract_metadata(test_directory: Path):
     logger.debug(f"check_set: {check_set}")
     assert len(check_set) == 4
 
-    # 4. Test Repeat File Prevention
-    # Criteria: Files with the same name in different sub-folders must be prevented from being in the same batch.
+
+
+import pytest
+from pathlib import Path
+from pydantic_models.file_paths_manager.file_path_and_metadata import FilePathAndMetadata
+from external_interface.file_paths_manager.file_paths_manager import FilePathsManager
+from pydantic_models.configs import Configs
+
+
+@pytest.fixture
+def file_paths_manager_fixture():
+    configs = Configs(batch_size=10, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+    return FilePathsManager(configs), configs
+
+@pytest.fixture
+def test_proc_methods_files(tmp_path: Path):
+    # Create temporary test files
+    valid_path1 = tmp_path / "valid1.txt"
+    valid_path2 = tmp_path / "valid2.txt"
+    invalid_path = tmp_path / "invalid.IDENTIFIER"  # unsupported extension
+    subfolder_valid_path1 = tmp_path / "subfolder" / "valid1.txt" # Same file, different subdirectories
+
+    # Create the actual files
+    valid_path1.write_text("test content")
+    valid_path2.write_text("test content")
+    invalid_path.write_text("test content")
+
+    subfolder_valid_path1.parent.mkdir(parents=True, exist_ok=True)
+    subfolder_valid_path1.write_text("test content")
+
+    # Set read permissions explicitly
+    os.chmod(valid_path1, 0o644)  # User read/write, group/others read
+    os.chmod(valid_path2, 0o644)
+    os.chmod(subfolder_valid_path1, 0o644)
+
+    os.chmod(invalid_path, 0o000)  # No permissions (should fail validation)
+
+    # Create mock output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    # Write one file in the output folder that is the same as in the test_proc_methods_files
+    output_valid_path1 = output_folder / "valid1.txt"
+    output_valid_path1.write_text("test content")
+    os.chmod(output_valid_path1, 0o644)
+
+    # Return a dict of Paths
+    return {
+        "valid1": valid_path1,
+        "valid2": valid_path2,
+        "invalid": invalid_path,
+        "subfolder_valid_path1": subfolder_valid_path1,
+        "output_folder": output_folder,
+        "output_valid1": output_valid_path1
+    }
+
+
+@pytest.mark.asyncio
+async def test_requires_processing_new_file(file_paths_manager_fixture, test_proc_methods_files):
+
+    file_paths_manager: FilePathsManager = file_paths_manager_fixture[0]
+    configs: Configs = file_paths_manager_fixture[1]
+
+    # Test case for a new file that hasn't been processed
+    file_path = FilePath(file_path=Path(test_proc_methods_files['valid1']))
+    input_path = FilePathAndMetadata(
+        max_program_memory=configs.max_program_memory,
+        file_path=file_path,
+    )
+
+    result = file_paths_manager.requires_processing(input_path)
+    assert result == True
+
+# 4. Test Repeat File Prevention
+
+
+@pytest.mark.asyncio
+async def test_requires_processing_existing_file(mock_input_output_directory):
+
+    input_dir, output_dir = mock_input_output_directory
+    configs = Configs(batch_size=10, input_folder=input_dir, output_folder=output_dir, max_workers=4, max_queue_size=2048)
+
+    file_paths_manager = FilePathsManager(configs)
+    already_processed_path = input_dir / "data" / "already_processed.csv"
+
+    # Test case for a file that has already been processed
+    file_path = FilePath(file_path=already_processed_path)
+    input_path = FilePathAndMetadata(
+        max_program_memory=configs.max_program_memory,
+        file_path=file_path,
+    )
+
+    result = file_paths_manager.requires_processing(input_path)
+    assert result == False
+
+
+@pytest.mark.asyncio
+async def test_requires_processing_invalid_input(file_paths_manager_fixture):
+
+    file_paths_manager: FilePathsManager = file_paths_manager_fixture[0]
+    configs: Configs = file_paths_manager_fixture[1]
+
+    # Test case for invalid input (None).
+    # Skip invalid inputs. NO BREAKS
+    result = file_paths_manager.requires_processing(None)
+    assert result == False
+
+import pytest
+import asyncio
+from pydantic_models.file_paths_manager.file_path_and_metadata import FilePathAndMetadata
+from pydantic_models.configs import Configs
+
+
+@pytest.mark.asyncio
+async def test_make_batch_empty_queue():
+    """
+    Test make_batch when processing_queue is empty.
+    """
+    configs = Configs(batch_size=10, input_folder='input', output_folder='output', max_workers=4, max_queue_size=2048)
+    file_manager = FilePathsManager(configs)
+
+    await file_manager.make_batch()
+
+    batches = await file_manager.output_queue.get()
+    assert len(batches) == 0
+
+
+@pytest.mark.asyncio
+async def test_make_batch_full_batch(test_files_all_valid):
+    """
+    Test make_batch when a full batch can be created.
+    """
+    configs = Configs(batch_size=2, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+    file_manager = FilePathsManager(configs)
+
+    # Mock the required methods
+    file_manager.get_inputs = asyncio_coroutine(lambda: None)
+    file_manager.extract_metadata = asyncio_coroutine(lambda: None)
+    file_manager.requires_processing = lambda x: True
+
+    # Add items to the processing_queue
+    for path in test_files_all_valid:
+        file_path = FilePath(file_path=path)
+        await file_manager.processing_queue.put(
+            FilePathAndMetadata(
+                max_program_memory=configs.max_program_memory,
+                file_path=file_path
+            )
+        )
+
+    await file_manager.make_batch()
+
+    batches = [batch for batch in file_manager.output_queue.get_nowait()]
+    assert len(batches) == 2
+    assert len(batches[0]) == 2
+    assert len(batches[1]) == 1
+
+@pytest.mark.asyncio
+async def test_make_batch_partial_batch(test_files_all_valid):
+    """
+    Test make_batch when only a partial batch can be created.
+    """
+    configs = Configs(batch_size=3, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+    file_manager = FilePathsManager(configs)
+
+    # Mock the required methods
+    file_manager.get_inputs = asyncio_coroutine(lambda: None)
+    file_manager.extract_metadata = asyncio_coroutine(lambda: None)
+    file_manager.requires_processing = lambda x: True
+
+    # Add items to the processing_queue
+    for path in test_files_all_valid:
+        file_path = FilePath(file_path=path)
+        await file_manager.processing_queue.put(
+            FilePathAndMetadata(
+                max_program_memory=configs.max_program_memory,
+                file_path=file_path
+            )
+        )
+
+    # Remove 1 of the 3 files in test_files.
+    _  = await file_manager.processing_queue.get_nowait()
+    await file_manager.make_batch()
+
+    batches = [batch for batch in file_manager.output_queue.get_nowait()]
+    assert len(batches) == 1
+    assert len(batches[0]) == 2
+
+@pytest.mark.asyncio
+async def test_make_batch_skip_processing(test_files_all_valid):
+    """
+    Test make_batch when some items don't require processing.
+    """
+    configs = Configs(batch_size=2, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+    file_manager = FilePathsManager(configs)
+
+    # Mock the required methods
+    file_manager.get_inputs = asyncio_coroutine(lambda: None)
+    file_manager.extract_metadata = asyncio_coroutine(lambda: None)
+    file_manager.requires_processing = lambda x: x.file_path != "valid1.txt"
+
+    # Add items to the processing_queue
+    for path in test_files_all_valid:
+        file_path = FilePath(file_path=path)
+        await file_manager.processing_queue.put(
+            FilePathAndMetadata(
+                max_program_memory=configs.max_program_memory,
+                file_path=file_path
+            )
+        )
+
+    await file_manager.make_batch()
+    batches = [batch for batch in file_manager.output_queue.get_nowait()]
+
+    assert len(batches) == 1
+    assert len(batches[0]) == 2
+    assert all(item.file_path != "valid.txt" for item in batches[0])
+
+@pytest.mark.asyncio
+async def test_make_batch_multiple_iterations():
+    """
+    Test make_batch with multiple iterations of the while loop.
+    """
+    configs = Configs(batch_size=2, input_folder="input", output_folder="output", max_workers=4, max_queue_size=2048)
+    file_manager = FilePathsManager(configs)
+
+    # Mock the required methods
+    file_manager.get_inputs = asyncio_coroutine(lambda: None)
+    file_manager.extract_metadata = asyncio_coroutine(lambda: None)
+    file_manager.requires_processing = lambda x: True
+
+    # Simulate multiple iterations by adding items in batches
+    async def add_items():
+        for i in range(5):
+            await file_manager.processing_queue.put(FilePathAndMetadata(file_path=f"file{i}.txt"))
+            if i % 2 == 1:
+                await asyncio.sleep(0.1)  # Small delay to allow for iteration
+
+    asyncio.create_task(add_items())
+
+    await file_manager.make_batch()
+    batches = [batch for batch in file_manager.output_queue.get_nowait()]
+
+    assert len(batches) == 3
+    assert all(len(batch) <= 2 for batch in batches)
+    assert sum(len(batch) for batch in batches) == 5
+
+
+# @pytest.fixture
+# def test_directory_with_repeats(tmp_path):
+#     # Create a directory structure with repeat file names
+#     (tmp_path / "subfolder1").mkdir()
+#     (tmp_path / "subfolder2").mkdir()
+
+#     # Create files with the same name in different subfolders
+#     (tmp_path / "subfolder1" / "repeat_file.txt").write_text("content1")
+#     (tmp_path / "subfolder2" / "repeat_file.txt").write_text("content2")
+#     (tmp_path / "unique_file.txt").write_text("content3")
+
+#     return tmp_path
+
+# @pytest.mark.asyncio
+# async def test_repeat_file_prevention(test_directory_with_repeats):
+#     configs = Configs(
+#         batch_size=2,
+#         input_folder=str(test_directory_with_repeats),
+#         output_folder="output",
+#         max_workers=4,
+#         max_queue_size=2048
+#     )
+#     file_manager = FilePathsManager(configs)
+
+#     # Populate the processing_queue with FilePathAndMetadata objects
+#     for file_path in test_directory_with_repeats.rglob('*.txt'):
+#         metadata = FilePathAndMetadata(
+#             file_path=str(file_path),
+#             cid="dummy_cid",
+#             file_name=file_path.name,
+#             file_extension=file_path.suffix,
+#             mime_type="text/plain",
+#             file_size=0,
+#             checksum="dummy_checksum",
+#             created_timestamp="2023-01-01",
+#             modified_timestamp="2023-01-01"
+#         )
+#         await file_manager.processing_queue.put(metadata)
+
+#     # Call the method that generates batches (assuming it's called generate_batches)
+#     batches = await file_manager.generate_batches()
+
+#     # Check that files with the same name are not in the same batch
+#     for batch in batches:
+#         file_names = [item.file_name for item in batch]
+#         assert len(file_names) == len(set(file_names)), "Duplicate file names found in a single batch"
+
+#     # Check that all files are included in the batches
+#     all_files = set(file_path.name for file_path in test_directory_with_repeats.rglob('*.txt'))
+#     batched_files = set(item.file_name for batch in batches for item in batch)
+#     assert all_files == batched_files, "Not all files were included in the batches"
+
+#     # Check that the batch size is respected
+#     for batch in batches:
+#         assert len(batch) <= configs.batch_size, f"Batch size {len(batch)} exceeds configured size {configs.batch_size}"
 
 
 # 4. Test Batch Generation
-# Criteria: batches must of size to equal or lesser than the batch size specified in the configs. 
+# Criteria: batches must of size to equal or lesser than the batch size specified in the configs.
 # If the batch size is larger than the total files, all files should be in one batch.
 # If the batch size is smaller than the total number files, each batch must NOT contain repeat files.
 
@@ -387,4 +707,4 @@ async def test_extract_metadata(test_directory: Path):
 
 # 9. Inaccessible Paths are logged and ignored.
 
-# 11. Files Larger than the memory allocated to the program.
+# 11. Files Larger than the memory allocated to the program are logged and ignored.

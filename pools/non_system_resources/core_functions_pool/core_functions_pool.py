@@ -1,22 +1,40 @@
 
 
 
-from typing import Any, Callable, Coroutine
+import ast
+import asyncio
+from asyncio import AbstractEventLoop
+import importlib
+import importlib.resources
+import os
+from pathlib import Path
+import sys
+from typing import Any, Callable, Coroutine,Optional
+
+
+from utils.common.monads.async_ import Async
 
 
 from markitdown import MarkItDown
 from pydantic import BaseModel
 
 
-from utils.file_paths_manager.file_paths_manager import FilePathAndMetadata
-from main import Resource
+from external_interface.file_paths_manager.file_paths_manager import FilePathAndMetadata
+from pydantic_models.resource.resource import Resource
+from pydantic_models.configs import Configs
+
+from .analyze_functions_in_directory.resource_profiler import ResourceProfiler
+from .analyze_functions_in_directory.function_analyzer import FunctionAnalyzer 
+
+
+from .load_functions_from_file import load_functions_from_files
 
 
 class FunctionAndParameters(BaseModel):
-    specific_function: Callable | Coroutine
-    args: dict[str, Any]
-    kwargs: dict[str, Any]
-    resource_estimate: dict[str, Any]
+    specific_function: Callable | Coroutine = None
+    args: dict[str, Any] = None
+    kwargs: dict[str, Any] = None
+    resource_estimate: dict[str, Any] = None
 
 
 class FunctionDictionary(BaseModel):
@@ -138,35 +156,73 @@ class CoreFunctionsPool:
         - This approach allows for a flexible and extensible system that can accommodate new conversion 
             libraries and methods as they become available.
     """
-    def __init__(self):
-        pass
 
-    def can_open(self, file_path: FilePathAndMetadata) -> bool:
-        pass
+    def __init__(self, configs: Configs):
+        self.logger = configs.make_logger(self.__class__.__qualname__)
+        self.db = configs.make_duck_db('core_function_pool.db')
+        self.loop = asyncio.get_event_loop()
+        self.load_functions = None
 
-    def can_convert(self, data: bytes, output_format: str) -> bool:
-        pass
+        # Import an Arbitrary file to prevent circular imports
+        import __about__
+        self.anchor = __about__
 
-    def can_save(self, data: bytes, resource: Resource) -> bool:
-        pass
+    async def brute_force(self, resource: Resource, func_dir: Path) -> Resource:
+        """
+        Iterate through the functions available in the given function directory over the Resource object.
 
+        For each function in the dictionary, try to use it in a mock fashion with an input set of parameters.
+        If it errors, log the results to the local database 'self.db'
 
+        """
+        recipe = {}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # Load each function into a dictionary
+        for path in os.listdir(func_dir):
+            if path.endswith('.py'):
+                recipe[path]['function'] = load_functions_from_files(path)
 
 
+    async def check_if_we_might_be_able_to_process_this(self, resource: Resource) -> Optional[Resource]:
+        """
+        
+        """
+        pipeline: Async = Async(
+            just(resource)
+        ) >> can_load >> can_convert >> can_save >> (
+            lambda e: e if isinstance(e, Exception) else resource
+        ) >> analyze
 
+        return await pipeline.future
+
+async def just(resource: Resource) -> Resource:
+    return await resource
+
+# TODO
+async def analyze(resource: Exception | Resource) -> Optional[Resource]:
+    if isinstance(resource, Resource):
+        return resource
+    return resource
+
+async def can_load(resource: Resource) -> Resource | Exception:
+    """
+    See if we can load a file with a given function, and with its given parameters.
+    """
+    file_path: FilePathAndMetadata = resource.file_path
+    func_dict: dict[str, Any] = resource.func_dict
+
+
+async def can_convert(self, data: bytes, output_format: str) -> Resource | Exception:
+    """
+    See if we can convert a file with a given func, and with its given parameters.
+    """
+    pass
+
+
+async def can_save(self, data: bytes, resource: Resource) -> Resource | Exception:
+    """
+    See if we can save a file with a given func, and with its given parameters.
+    """
+    pass
 
 

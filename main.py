@@ -327,95 +327,6 @@ class PooledResource(BaseModel):
 
 
 
-# Type definitions
-T = TypeVar('T')
-E = TypeVar('E') # Error
-U = TypeVar('U') # Unit
-
-@dataclass
-class Either(Generic[E, T]):
-    value: T | E
-    is_right: bool
-
-    @classmethod
-    def right(cls, value: T) -> 'Either[E, T]':
-        return cls(value, True)
-
-    @classmethod
-    def left(cls, error: E) -> 'Either[E, T]':
-        return cls(error, False)
-
-    def map(self, func: Callable[[T], T]) -> 'Either[E, T]':
-        if self.is_right:
-            return Either.right(func(self.value))
-        return self
-
-    def bind(self, func: Callable[[T], 'Either[E, T]']) -> 'Either[E, T]':
-        if self.is_right:
-            return func(self.value)
-        return self
-
-
-@dataclass
-class Result(Generic[T]):
-    value: T | Exception
-
-    def map(self, func: Callable[[T], U]) -> "Result[U | Exception]":
-        if isinstance(self.value, Exception):
-            return self
-        try:
-            return Result(func(self.value))
-        except Exception as e:
-            return Result(e)
-
-@dataclass
-class Promise(Generic[T]):
-    executor: Callable[[], T]
-    _value: Optional[T] = None
-    _error: Optional[Exception] = None
-    _is_fulfilled: bool = False
-
-    def then(self, callback: Callable[[T], U]) -> 'Promise[U]':
-        def new_executor():
-            try:
-                result = self.executor()
-                self._value = result
-                self._is_fulfilled = True
-                return callback(result)
-            except Exception as e:
-                self._error = e
-                raise e
-        return Promise(new_executor)
-
-    def catch(self, error_handler: Callable[[Exception], U]) -> 'Promise[U]':
-        def new_executor():
-            try:
-                return self.executor()
-            except Exception as e:
-                self._error = e
-                return error_handler(e)
-        return Promise(new_executor)
-
-    def finally_(self, final_callback: Callable[[], None]) -> 'Promise[T]':
-        def new_executor():
-            try:
-                result = self.executor()
-                return result
-            finally:
-                final_callback()
-        return Promise(new_executor)
-
-    @property
-    def value(self) -> Optional[T]:
-        return self._value
-
-    @property
-    def error(self) -> Optional[Exception]:
-        return self._error
-
-    @property
-    def is_fulfilled(self) -> bool:
-        return self._is_fulfilled
 
 from typing import Awaitable, Coroutine
 
@@ -440,121 +351,6 @@ class ManagedResource(Generic[T]):
     async def dispose(self) -> None:
         if self._cleanup:
             await self._cleanup()
-
-
-@dataclass
-class AsyncPromise(Generic[T]):
-    """
-    An asynchronous version of a Promise Monad.
-    It allows for chaining of async functions, handling of errors, and producing intermediate side-effect objects.
-    
-    Examples:
-        resource = Resource(
-                path=FilePath('path/to/file.json'),
-                api_connection=ApiConnection,
-                threads=1,
-                func=[ # NOTE: sys_mem is allocated to the function AND to hold the loaded file.
-                    {'step': 1, 'name': 'open_json', sys_mem': 512}, 
-                    {'step': 2, 'name': 'convert_json', 'sys_mem': 512, 'api_uses': 1, 'gpu_mem': 1024},
-                    {'step': 3, 'name': 'save_json', 'sys_mem': 256}
-                ], 
-                total_gpu_mem=1024, # Add up all the gpu_mem from the func list
-                total_sys_mem=1280, # Add up all the sys_mem from the func list
-                total_api_uses=1, # Add up all the api_uses from the func list
-                data=None, # Data from the file that is being processed. Should be in bytes
-            )
-
-        def open_json(resource: BaseModel) -> Resource:
-            with open(resource.path, 'r') as f:
-                resource.data = json.load(f)
-            return resource
-
-        async def convert_json(resource: BaseModel) -> BaseModel:
-           resource.data = await resource.client.api_call(resource.data)
-           return resource
-
-        async def save_json(resource: BaseModel) -> BaseModel:
-            resource.num = await resource.client.api_call(n)
-            return resource
-
-        # Usage in chain.
-        result = await AsyncPromise(async_function, resource) \
-            .then(other_async_function) \
-            .then(async_function_with_api_call, dispose_after=resource.client) \
-            .catch(lambda e: print(e)) \
-            .finally(lambda: print("done")) \
-
-    """
-    executor: Callable[[], Awaitable[T]]
-    _value: Optional[T] = None
-    _error: Optional[Exception] = None
-    _is_fulfilled: bool = False
-    _is_pending: bool = True
-
-    async def _execute(self) -> T:
-        if not self._is_pending:
-            if self._error:
-                raise self._error
-            assert self._value is not None
-            return self._value
-            
-        try:
-            result = await self.executor()
-            self._value = result
-            self._is_fulfilled = True
-            return result
-        except Exception as e:
-            self._error = e
-            raise
-        finally:
-            self._is_pending = False
-
-    async def then(self, callback: Callable[[T], Awaitable[U]]) -> 'AsyncPromise[U]':
-        async def new_executor():
-            try:
-                result = await self.executor()
-                self._value = result
-                self._is_fulfilled = True
-                return await callback(result)
-            except Exception as e:
-                self._error = e
-                raise e
-        return AsyncPromise(new_executor)
-
-    async def catch(self, error_handler: Callable[[Exception], Awaitable[T]]) -> 'AsyncPromise[U]':
-        async def new_executor():
-            try:
-                return await self.executor()
-            except Exception as e:
-                self._error = e
-                return error_handler(e)
-        return AsyncPromise(new_executor)
-
-    async def finally_(self, final_callback: Callable[[], None]) -> 'AsyncPromise[T]':
-        async def new_executor():
-            try:
-                result = await self.executor()
-                return result
-            finally:
-                final_callback()
-        return AsyncPromise(new_executor)
-
-    @property
-    def value(self) -> Optional[T]:
-        return self._value
-
-    @property
-    def error(self) -> Optional[Exception]:
-        return self._error
-
-    @property
-    def is_fulfilled(self) -> bool:
-        return self._is_fulfilled
-
-    @property
-    def side_effect(self) -> Optional[U]:
-        return self._side_effect
-
 
 
 
@@ -668,7 +464,8 @@ ERROR_NO_CEXT = "MySQL Connector/Python C Extension not available"
 _CONNECTION_POOLS: Dict[str, ApiConnectionPool] = {}
 
 
-
+class Processor():
+    pass
 
 
 class Pools():
@@ -1000,68 +797,7 @@ class FilePathQueue:
 
 from typing import Generator
 
-class Processor:
 
-    def __init__(self, configs, resource):
-        self.configs = configs
-        self.resource: Resource = resource
-        self.either: Either = None
-
-        self.compose = self.compose(configs, resource)
-
-        if self.the_file_needs_async_processing(resource):
-            self.processor = self.async_processor(resource)
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        while True:
-            try:
-                yield await self.processor(self.file, self.resource)
-            finally:
-                raise StopAsyncIteration
-
-    def processor(file: Path, resource: Resource) -> Generator[Resource]:
-        """
-        Compose resources into a processor chain.
-        A processor chain is a series of functions that take a Resource and return left-overs as they go.
-        A chain requires a Resource and a file to process:
-
-           - file: Path
-           - functions: dict[str, Callable]
-           - API connections: list[ApiConnection]R
-           - System Resources: list[SystemResource]
-        
-        """
-
-    async def async_processor(file, resource: Resource) -> AsyncGenerator[Resource]:
-        """
-        
-        
-        """
-        pass
-
-    def compose(resource: Resource) -> Either:
-        """
-        Take functions from a resource and compose them into a chain.
-
-        The chain is a list of functions and/or coroutines that will be executed in order.
-        """
-        pass
-
-    def the_file_needs_async_processing(file):
-        """
-        
-        """
-        pass
-
-    def returns_leftover_resources() -> Resource | None:
-        """
-        If there are any leftover resources, return them back to the Core Manager.
-
-        """
-        pass
 
 def figure_out_what_resources_we_need_for_this(file):
     pass
@@ -1069,14 +805,7 @@ def figure_out_what_resources_we_need_for_this(file):
 
 import threading
 
-
-
 from external_interface.config_parser.config_parser import ConfigParser
-
-class ApiManager:
-    
-    def __init__(self, configs: Configs):
-        pass
 
 
 async def main():
@@ -1092,9 +821,6 @@ async def main():
 
     next_step("Step 2: Create and start the File Paths Manager")
     file_paths_manager = FilePathsManager(configs)
-
-    # To access the file_paths_manager later:
-    # file_paths_manager = getattr(file_paths_manager_thread, 'file_paths_manager', None)
 
     next_step("Step 3: Create and start the API Manager.")
     llm_api_manager = ApiManager(configs)

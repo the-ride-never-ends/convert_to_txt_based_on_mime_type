@@ -51,9 +51,9 @@ class ConfigParser:
             Defaults to 4.
         batch_size (int): Number of files to be processed in a single batch.
             Defaults to 1024.
-        llm_api_key (str): API key for the LLM API.
+        api_key (str): API key for the LLM API.
             Defaults to 'abcde123456'.
-        llm_api_url (str): URL for the LLM API.
+        api_url (str): URL for the LLM API.
             Defaults to 'www.example.com'.
         use_docintel (bool): Use Document Intelligence to extract text instead of offline conversion. Requires a valid Document Intelligence Endpoint.
             Defaults to False.
@@ -203,8 +203,8 @@ class ConfigParser:
             max_connections_per_api=args.max_connections_per_api,
             max_threads=args.max_threads,
             batch_size=args.batch_size,
-            llm_api_key=args.llm_api_key,
-            llm_api_url=args.llm_api_url,
+            api_key=args.api_key,
+            api_url=args.api_url,
             use_docintel=args.use_docintel,
             docintel_endpoint=args.docintel_endpoint,
             pool_refresh_rate=args.pool_refresh_rate,

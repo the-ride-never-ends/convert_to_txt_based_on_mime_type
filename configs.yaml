@@ -2,8 +2,8 @@ batch_size: 1024
 conversion_timeout: 30
 docintel_endpoint: http://www.example2.com
 input_folder: input
-llm_api_key: abcde123456
-llm_api_url: http://www.example.com
+api_key: abcde123456
+api_url: http://www.example.com
 log_level: DEBUG
 max_connections_per_api: 3
 max_program_memory: 1024

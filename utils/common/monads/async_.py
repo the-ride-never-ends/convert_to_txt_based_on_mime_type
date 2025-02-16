@@ -1,6 +1,7 @@
 import asyncio
+from functools import wraps
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from logger.logger import Logger
 
@@ -9,18 +10,18 @@ logger = Logger(__name__)
 class TaskError(Exception):
     pass
 
-def check_result(f: asyncio.Future, chained: asyncio.Future = None):
-    if f.exception():
+def check_result(future: asyncio.Future, chained: asyncio.Future = None) -> Any:
+    if future.exception():
         if chained:
-            chained.set_exception(f.exception())
+            chained.set_exception(future.exception())
         raise TaskError()
-    elif f.cancelled():
-        logger.debug(f'{f} was cancelled')
+    elif future.cancelled():
+        logger.debug(f'{future} was cancelled')
         if chained:
             chained.cancel()
         raise TaskError()
     else:
-        return f.result()
+        return future.result()
 
 def pass_result(resolved: asyncio.Future, unresolved: asyncio.Future):
     if resolved.exception():
@@ -34,21 +35,22 @@ def pass_result(resolved: asyncio.Future, unresolved: asyncio.Future):
             resolved.result()
         )
 
-@asyncio.coroutine
+
 def ensure_this_is_a_coroutine(fn_or_coro):
     """
     Coerce a function into being a coroutine.
+    Like the asyncio_coroutine decorator, except it's a regular function.
     """
     if asyncio.iscoroutinefunction(fn_or_coro):
         return fn_or_coro
 
     elif callable(fn_or_coro):
         # Wrap a callable in a coroutine
-        @asyncio.coroutine
-        def wrapper(*args, **kwargs):
+        @wraps(fn_or_coro)
+        async def wrapper(*args, **kwargs):
             result = fn_or_coro(*args, **kwargs)
             if asyncio.iscoroutine(result):
-                return (yield from result)
+                return await result
             else:
                 return result
         return wrapper

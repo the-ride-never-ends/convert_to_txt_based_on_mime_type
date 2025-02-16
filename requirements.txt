@@ -2,6 +2,7 @@ aiohttp
 azure-ai-documentintelligence
 duckdb
 markitdown
+memory_profiler
 multiformats
 multipledispatch
 networkx

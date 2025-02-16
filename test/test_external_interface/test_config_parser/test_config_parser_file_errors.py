@@ -24,8 +24,8 @@
 #         "max_connections_per_api": 3,
 #         "max_threads": 4,
 #         "batch_size": 1024,
-#         "llm_api_key": "abcde12345",
-#         "llm_api_url": "http://www.example.com",
+#         "api_key": "abcde12345",
+#         "api_url": "http://www.example.com",
 #         "use_docintel": False,
 #         "docintel_endpoint": "http://www.example2.com",
 #         "version": "0.1.0",
@@ -55,20 +55,20 @@
 #             "output_folder": "output"
 #         },
 #         "invalid_types": {
-#             "llm_api_key": 6.4,
-#             "llm_api_url": False,
+#             "api_key": 6.4,
+#             "api_url": False,
 #             "max_memory": "not_an_integer",
 #             "max_threads": 3.14
 #         },
 #         "out_of_range": {
-#             "llm_api_key": "abcde12345&&&&&#####$$$$$````",
-#             "llm_api_url": "wwwwwwwwwwwwww.example.com",
+#             "api_key": "abcde12345&&&&&#####$$$$$````",
+#             "api_url": "wwwwwwwwwwwwww.example.com",
 #             "max_connections_per_api": -1,
 #             "max_threads": 0
 #         },
 #         "invalid_pairwise": {
-#             "llm_api_key": "abcde12345",
-#             "llm_api_url": "",  # Empty URL
+#             "api_key": "abcde12345",
+#             "api_url": "",  # Empty URL
 #             "use_docintel": True,
 #             "docintel_endpoint": ""  # Empty endpoint despite use_docintel=True
 #         }
@@ -88,8 +88,8 @@
 #         "max_connections_per_api": 5,
 #         "max_threads": 8,
 #         "batch_size": 512,
-#         "llm_api_key": "test_key_123",
-#         "llm_api_url": "https://test.example.com",
+#         "api_key": "test_key_123",
+#         "api_url": "https://test.example.com",
 #         "use_docintel": True,
 #         "docintel_endpoint": "https://test.example2.com",
 #         "pool_refresh_rate": 30,
@@ -132,8 +132,8 @@
 # def mock_environment_vars():
 #     """Dictionary of environment variables for testing"""
 #     return {
-#         "LLM_API_KEY": "env_test_key",
-#         "LLM_API_URL": "https://env.example.com",
+#         "api_key": "env_test_key",
+#         "api_url": "https://env.example.com",
 #         "MAX_MEMORY": "8192",
 #         "LOG_LEVEL": "ERROR"
 #     }

@@ -80,7 +80,7 @@ class TestConfigParserValidation:
     # def test_invalid_urls(self, setup_config_file):
     #     """Test handling of invalid URLs"""
     #     invalid_urls = {
-    #         "llm_api_url": "not_a_url",
+    #         "api_url": "not_a_url",
     #         "docintel_endpoint": "also_not_a_url"
     #     }
     #     setup_config_file(invalid_urls)
@@ -92,7 +92,7 @@ class TestConfigParserValidation:
     #     """Test handling of missing paired required values"""
     #     # Case 1: Missing API URL when key is provided
     #     missing_url = {
-    #         "llm_api_key": "12345678"
+    #         "api_key": "12345678"
     #     }
     #     setup_config_file(missing_url)
     #     parser = ConfigParser()
@@ -135,7 +135,7 @@ class TestConfigParserValidation:
     # def test_invalid_whitespace(self, setup_config_file):
     #     """Test handling of invalid whitespace in values"""
     #     invalid_whitespace = {
-    #         "llm_api_key": "123 456",  # Space in API key
+    #         "api_key": "123 456",  # Space in API key
     #         "log_level": "INFO ",  # Trailing space
     #         "input_folder": " input"  # Leading space
     #     }

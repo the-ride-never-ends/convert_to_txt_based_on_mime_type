@@ -148,9 +148,8 @@ class ResourceException(BaseModel, Exception):
 
 class CoreErrorManager:
 
-    def __init__(self, resources: list[Resource], configs: Configs):
+    def __init__(self, configs: Configs):
         self.logger = configs.logger
-
 
     def log(self, result: Resource) -> Resource:
         """
@@ -158,35 +157,3 @@ class CoreErrorManager:
         """
         if isinstance(result, Exception):
             self.logger.error(f"Error occurred: {result}")
-
-
-def circuit_breaker(func):
-    return CircuitBreaker()(func)
-
-class FileConverter:
-    def __init__(self):
-        pass
-
-    @circuit_breaker
-    def convert_file(self, file_path: str) -> ConversionResult:
-        with ResourceManager() as rm:
-            try:
-                # Conversion logic here
-                return ConversionResult(True, "Converted content", None)
-            except Exception as e:
-                return ConversionResult(False, None, str(e))
-
-    def convert_with_fallback(self, file_path: str) -> str:
-        try:
-            result = self.convert_file(file_path)
-            if result.success:
-                return result.content
-        except Exception:
-            pass
-        
-        # Fallback to simplest possible conversion
-        return self._basic_conversion(file_path)
-
-    def _basic_conversion(self, file_path: str) -> str:
-        # Implement most basic, reliable conversion
-        pass

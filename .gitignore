@@ -14,6 +14,7 @@ deprecated/
 utils/common/experimental/*
 utils/common/monads/*
 !utils/common/monads/async_.py
+fixtures/*
 
 docs/
 

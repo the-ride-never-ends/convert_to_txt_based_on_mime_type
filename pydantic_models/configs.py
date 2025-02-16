@@ -54,9 +54,9 @@ class Configs(BaseModel):
             Defaults to 4.
         batch_size (int): Number of files to be processed in a single batch.
             Defaults to 1024.
-        llm_api_key (str): API key for the LLM API.
+        api_key (str): API key for the LLM API.
             Defaults to 'abcde123456'.
-        llm_api_url (str): URL for the LLM API.
+        api_url (str): URL for the LLM API.
             Defaults to 'www.example.com'.
         use_docintel (bool): Use Document Intelligence to extract text instead of offline conversion. Requires a valid Document Intelligence Endpoint.
             Defaults to False.
@@ -84,9 +84,12 @@ class Configs(BaseModel):
     max_connections_per_api: int = Field(default=3, ge=1, le=10)
     max_cpu_cores: int = Field(default=4, ge=1, le=32)
     batch_size: int = Field(default=1024, ge=1, le=4096, alias='batch_size')
-    llm_api_key: str = Field(default="abcde123456", min_length=8)
-    llm_api_url: str = Field(default="http://www.example.com")
+    api_key: str = Field(default="abcde123456", min_length=8)
+    api_url: str = Field(default="http://www.example.com")
     use_docintel: bool = Field(default=False)
+
+    budget_in_usd: float = Field(default=25.0, ge=0.0)
+
     docintel_endpoint: str = Field(default="http://www.example2.com")
     version: str = Field(default=__version__, pattern=r"^\d+\.\d+\.\d+$")
     pool_refresh_rate: int = Field(default=60, ge=1, le=3600)  # Between 1 second and 1 hour
@@ -103,7 +106,7 @@ class Configs(BaseModel):
 
     def __init__(self, **data):
 
-        keys_to_check = ["docintel_endpoint", "llm_api_url", "llm_api_key", "log_level"]
+        keys_to_check = ["docintel_endpoint", "api_url", "api_key", "log_level"]
         data = _make_dict_keys_and_string_values_lower_case_and_strip_off_whitespace(data)
         # TODO Figure out why the log_level is not being found.
         try:
@@ -135,10 +138,10 @@ class Configs(BaseModel):
 
     @model_validator(mode='after')
     def check_for_mock_api_values(self) -> Self:
-        if self.llm_api_url == "http://www.example.com":
+        if self.api_url == "http://www.example.com":
             print("WARNING: The default LLM API URL is NOT a valid API endpoint. Please update the config file with an actual LLM API endpoint.")
             self._can_use_llm = False
-        if self.llm_api_url == "abcde123456":
+        if self.api_url == "abcde123456":
             print("WARNING: The default LLM API key is NOT a valid API key. Please update the config file with an actual LLM API key.")
             self._can_use_llm = False
         return self

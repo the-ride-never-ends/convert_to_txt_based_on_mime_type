@@ -7,23 +7,22 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel
 
 
-from .supported_mime_types import SupportedMimeTypes
-from pydantic_models.types.valid_path import ValidPath
+from external_interface.file_paths_manager.supported_mime_types import SupportedMimeTypes
 
 
 def validate_file_path(value: Path) -> Path:
 
     # Check if it's a file-type we have a converter for.
     if value.suffix not in SupportedMimeTypes:
-        raise ValueError(f"File type {value.suffix} is not supported")
+        raise ValueError(f"File type '{value.suffix}' is not supported")
 
     # Check if the file exists.
     if not value.exists():
-        raise ValueError(f"File {value} does not exist")
+        raise ValueError(f"File '{value}' does not exist")
 
     # Check if we have read permissions for the file.
     if not os.access(value, os.R_OK):
-        raise ValueError(f"Program lacks read permissions for File {value}")
+        raise ValueError(f"Program lacks read permissions for File '{value}'")
 
     return value
 
