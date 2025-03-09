@@ -1,7 +1,7 @@
 from typing import Any, Never
 
 
-def _check_for_whitespace_in_specific_strings(configs_dict: dict[str, Any], keys_to_check: list[str]) -> Never:
+def _check_for_invalid_keys(configs_dict: dict[str, Any], keys_to_check: list[str]) -> Never:
     invalid_keys = []
 
     for key in keys_to_check:

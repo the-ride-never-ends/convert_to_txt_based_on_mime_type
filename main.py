@@ -108,12 +108,6 @@ class ResourceType(Enum):
     TRANSIENT = auto()   # Resources that can be destroyed and recreated (threads)
     CONSUMABLE = auto() # Resources that can be exactly once ()
 
-import psutil
-
-import signal 
-import resource 
-
-
 import subprocess as sp
 import os
 
@@ -130,126 +124,6 @@ class SystemResource(BaseModel):
     pass
 
 
-class SystemResourcesManager():
-    """
-    Manages system resources.
-
-    Essentially, this is a glorified counter that has access to information on the System's resources.
-
-    Since Python does garbage collection and memory allocation for us, 
-        we just need to make sure the program is not using more than the system has access to at any given time.
-        Similarly, if there is a limit we put upon a system resource, we need to make sure we do not exceed it.
-    
-    Finally, this information needs to be transmitted to other parts of the program in a controlled manner.
-        This is done by having the manager produce a summary object that can be passed around ever X seconds.
-        This object is a Pydantic BaseModel. As the model can easily be converted to JSONs, this allows for easy logging
-        or use by a DashBoard.
-
-    Attributes:
-    
-    Methods:
-
-    """
-
-    def __init__(self, configs: Configs):
-        self.configs = configs
-        self.max_cores: int = psutil.cpu_count(logical=False)  # Get the number of physical CPU cores
-        self.gpu_memory_in_use: int = None # The amount of available memory for each GPU (in MegaBytes)
-        self.available_disk_space: int = psutil.disk_usage('/').free  # Get the amount of available disk space in bytes
-
-
-    def _whichever_value_is_smaller(self, config_value: int, system_value: int) -> int:
-        """
-        Args:
-            config_value (int): The value from the config file.
-            system_value (int): The value from given from the system itself.
-        Returns:
-            int: The smaller of the two values.
-        """
-        if system_value is None or config_value is None:
-            raise ValueError("Both config_value and system_value are None.")
-        else:
-            if system_value is None:
-                return config_value
-            elif config_value is None:
-                return system_value
-            else:
-                return system_value if system_value < config_value else config_value
-
-    @functools.lru_cache(maxsize=3)
-    def get_gpu_memory(self) -> list[int]: 
-        """
-        Get the amount of available VRAM for each GPU (in MegaBytes)
-        If the amount of available VRAM is greater than the amount specified in the config file,
-            then the amount specified in the config file is returned.
-
-        Returns:
-            int: The amount of GPU memory available in bytes as an int.
-        """
-        command = "nvidia-smi --query-gpu=memory.free --format=csv"
-        memory_free_info = sp.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
-        memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
-        return memory_free_values
-
-
-    @functools.lru_cache(maxsize=3)
-    def get_available_cores(self) -> int:
-        """
-        Get the number of available CPU cores from the system.
-
-        Returns:
-            int: The number of CPU cores available as an int
-            If the amount of available CPU cores is greater than the amount specified in the config file,
-                then the amount specified in the config file is returned.
-
-        Examples:
-            >>> # Assume actual cores available is 4
-            >>> configs.max_cores = 40
-            >>> manager = SystemResourceManager(configs)
-            >>> get_available_cores()
-            4
-            >>> configs.max_cores = 2
-            >>> manager = SystemResourceManager(configs)
-            >>> get_available_cores()
-            2
-        """
-        return self._whichever_value_is_smaller(self.configs.max_cpu_cores, self.max_cores)
-
-    @functools.lru_cache(maxsize=3)
-    def get_available_memory(self) -> int:
-        """
-        Get the amount of available system memory from the system.
-
-        Returns:
-            int: The amount of system available (in bytes) as an int.
-            If the amount of available system memory is greater than the amount specified in the config file,
-                then the amount specified in the config file is returned.
-        """
-        virtual_memory_available = psutil.virtual_memory().available
-        return self._whichever_value_is_smaller(self.configs.max_program_memory, virtual_memory_available)
-
-    def get_available_gpu_memory(self) -> int:
-        """
-
-        """
-        available_gpu_memory = self.get_gpu_memory()  
-
-    def update(self, call_every: int = 5) -> Generator[SystemResource, None, None]:
-        """
-        Update the system resource information.
-        This method sends the current system resource information to the External Resource Manager.
-        Operates based on a push system, where system resource information is automatically sent 
-            to the External Resource Manager every X seconds.
-
-        Args:
-            call_every (int, optional): The interval in seconds to call the update method. Defaults to 5.
-            This is used to control the frequency of updates to the External Resource Manager.
-
-        Yields:
-            SystemResource: The updated system resource information.
-
-        """
-        pass
 
 
 class PooledResource(BaseModel):

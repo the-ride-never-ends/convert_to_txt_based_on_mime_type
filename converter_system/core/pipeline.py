@@ -63,13 +63,15 @@ async def success_or_failure(resource: Optional[Resource]) -> None:
 
 class Pipeline(object):
 
-    def __init__(self):
-        pass
+    def __init__(self, resource: Resource):
+        self.gather = gather
+        self.log_errors = log_errors
+        self.load = resource.load
 
     def run(self, resource: Resource):
         pipeline = Async(
             start_pipeline(resource)
-            ) >> gather >> log_errors >> (
+            ) >> self.gather >> log_errors >> (
                 lambda resource: load(resource)
             ) >> gather >> log_errors >> (
                 lambda resource: convert(resource)

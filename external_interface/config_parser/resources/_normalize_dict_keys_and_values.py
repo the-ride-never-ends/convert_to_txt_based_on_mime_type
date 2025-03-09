@@ -3,7 +3,7 @@
 from typing import Any
 
 
-def _make_dict_keys_and_string_values_lower_case_and_strip_off_whitespace(configs_dict: dict[str, Any]) -> dict[str, Any]:
+def normalize_dict_keys_and_values(configs_dict: dict[str, Any]) -> dict[str, Any]:
     """
     Converts dictionary keys and string values to lowercase and removes leading/trailing whitespace.
 

@@ -95,8 +95,23 @@ class Resource(BaseModel):
         """
         self._pipeline = Pipeline(self.model_copy(deep=True))
 
+
+    async def pipeline_func(self, resource: 'Resource', func_dict_key: str):
+            kwargs = self.func_dict[FunctionType.SAVE].kwargs
+            func = partial(self.func_dict[FunctionType.SAVE].func, **kwargs)
+            try:
+                return await func(resource) if resource is not None else None
+            except Exception as e:
+                return e
+            finally:
+                self.total_api_uses -= self.func_dict[FunctionType.SAVE].api_connection or 0
+                self.total_gpu_mem -= self.func_dict[FunctionType.SAVE].gpu_mem or 0
+                self.total_sys_mem -= self.func_dict[FunctionType.SAVE].sys_mem or 0
+                self.total_workers -= self.func_dict[FunctionType.LOAD].worker or 0
+
+
     # NOTE These functions are meant to be passed in a pipeline
-    async def load(self, resource) -> Optional[bytes]:
+    async def load(self, resource: 'Resource') -> Optional[bytes]:
         kwargs = self.func_dict[FunctionType.LOAD].kwargs
         func = partial(self.func_dict[FunctionType.LOAD].func, **kwargs)
         try:
@@ -122,7 +137,7 @@ class Resource(BaseModel):
             self.total_sys_mem -= self.func_dict[FunctionType.CONVERT].sys_mem or 0
 
 
-    async def save(self, resource) -> Optional[bytes]:
+    async def save(self, resource: 'Resource') -> Optional[bytes]:
         kwargs = self.func_dict[FunctionType.SAVE].kwargs
         func = partial(self.func_dict[FunctionType.SAVE].func, **kwargs)
         try:
@@ -134,3 +149,5 @@ class Resource(BaseModel):
             self.total_gpu_mem -= self.func_dict[FunctionType.SAVE].gpu_mem or 0
             self.total_sys_mem -= self.func_dict[FunctionType.SAVE].sys_mem or 0
             self.total_workers -= self.func_dict[FunctionType.LOAD].worker or 0
+
+

@@ -2,7 +2,7 @@
 
 
 from __future__ import annotations
-from __about__ import __version__
+from __version__ import __version__
 
 from argparse import Namespace
 from pathlib import Path
@@ -22,9 +22,8 @@ from pydantic import (
 import yaml
 
 
-from pydantic_models.configs import Configs
-from external_interface.config_parser._print_configs_on_startup import _print_configs_on_startup
-
+from configs.configs import Configs
+from external_interface.config_parser.resources._print_configs_on_startup import _print_configs_on_startup
 
 
 class ConfigParser:

@@ -1,5 +1,6 @@
 aiohttp
 azure-ai-documentintelligence
+dependency-injector
 duckdb
 markitdown
 memory_profiler

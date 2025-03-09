@@ -164,8 +164,8 @@ class CoreFunctionsPool:
         self.load_functions = None
 
         # Import an Arbitrary file to prevent circular imports
-        import __about__
-        self.anchor = __about__
+        import __version__
+        self.anchor = __version__
 
     async def brute_force(self, resource: Resource, func_dir: Path) -> Resource:
         """

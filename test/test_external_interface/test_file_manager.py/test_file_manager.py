@@ -500,16 +500,19 @@ from pydantic_models.configs import Configs
 
 
 @pytest.mark.asyncio
-async def test_make_batch_empty_queue():
+async def test_make_batch_empty_queue(mock_input_output_directory):
     """
     Test make_batch when processing_queue is empty.
     """
-    configs = Configs(batch_size=10, input_folder='input', output_folder='output', max_workers=4, max_queue_size=2048)
+    input_dir, output_dir = mock_input_output_directory
+
+    configs = Configs(batch_size=10, input_folder=input_dir, output_folder=output_dir, max_workers=4, max_queue_size=2048)
     file_manager = FilePathsManager(configs)
 
     await file_manager.make_batch()
 
     batches = await file_manager.output_queue.get()
+    print(f"batches: {batches}")
     assert len(batches) == 0
 
 
@@ -571,6 +574,7 @@ async def test_make_batch_partial_batch(test_files_all_valid):
     await file_manager.make_batch()
 
     batches = [batch for batch in file_manager.output_queue.get_nowait()]
+    logger.debug(f"batches: {batches}")
     assert len(batches) == 1
     assert len(batches[0]) == 2
 

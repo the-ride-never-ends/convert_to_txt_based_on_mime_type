@@ -3,7 +3,7 @@
 import argparse
 from utils.config_parser.config_parser import ConfigParser
 
-from __about__ import __version__
+from __version__ import __version__
 
 def run_with_argparse():
 

@@ -1,5 +1,6 @@
 # Config files
 private_config.yaml
+configs.yaml
 *.env
 
 # Folder paths

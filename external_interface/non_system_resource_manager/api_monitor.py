@@ -1,18 +1,17 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Callable, Coroutine
 
 
 from pydantic import BaseModel
 
 
-from pydantic_models.configs import Configs, Paths
-from pydantic_models.resource.api_connection import ApiConnection
-
-
+from configs.configs import Configs, Paths
+from .api_connection import ApiConnection
 
 
 import json
 from pydantic import BaseModel, Field, PrivateAttr
+
 
 class SupportedTransformersModels(BaseModel):
     model: dict[str, Any] = Field(default_factory=dict)
@@ -41,14 +40,12 @@ class SupportedTransformersModels(BaseModel):
         except json.JSONDecodeError:
             raise json.JSONDecodeError(f"The file {file_path} contains invalid JSON.")
 
-
 class SupportedProviders(Enum):
     COHERE = "cohere"
     OLLAMA = "ollama"
     TRANSFORMERS = "transformers"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
-
 
 class ModelType(Enum):
     LLM = "llm"
@@ -64,7 +61,13 @@ from aiohttp import ClientResponse
 
 class ApiManager():
     
-    def __init__(self, configs: Configs):
+    def __init__(self, resources: dict[str, Callable|Coroutine]=None, configs: BaseModel = None):
+        self.resources = resources
+        self.configs = configs
+
+        self.max_connections_per_api: int = configs.non_system_resources_max_connections_per_api
+        self.available_api_connections: list = []
+
         self.max_connections_per_api: int = configs.max_connections_per_api if configs.can_use_llm else 0
         self.connections_in_use: int = 0
         self.supported_models: BaseModel = SupportedTransformersModels.from_json(

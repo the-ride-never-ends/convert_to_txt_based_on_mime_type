@@ -180,7 +180,7 @@ class Core:
 
             # Wait for the next future to complete. 
             while futures:
-                done, _ = cf.wait(
+                done, pending = cf.wait(
                     futures, return_when=cf.FIRST_COMPLETED
                 )
 
@@ -221,7 +221,10 @@ class Core:
         with cf.ThreadPoolExecutor() as executor:
             futures = {
                 loop.run_in_executor(
-                    executor, input.resource.pipeline.run(), input.resource): input
+                    executor, 
+                    input.resource.pipeline.run(), 
+                    input.resource
+                ): input
                 for input in itertools.islice(iter_inputs, self.core_resource_manager.free_workers)
             }
 

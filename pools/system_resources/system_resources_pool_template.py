@@ -101,7 +101,6 @@ class SystemResourcesPoolTemplate():
             except Exception as e:
                 raise ResourceError(f"Failed to return resource: {e}")
 
-
     async def _remove_value_implementation(self, resource: Resource) -> Resource:
         amount = resource.release(self.resource_type)
 
