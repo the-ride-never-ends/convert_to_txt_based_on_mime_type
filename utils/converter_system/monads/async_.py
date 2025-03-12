@@ -1,11 +1,13 @@
 import asyncio
 from functools import wraps
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
-from logger.logger import Logger
 
-logger = Logger(__name__)
+from .monad import Monad
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 class TaskError(Exception):
     pass
@@ -16,7 +18,7 @@ def check_result(future: asyncio.Future, chained: asyncio.Future = None) -> Any:
             chained.set_exception(future.exception())
         raise TaskError()
     elif future.cancelled():
-        logger.debug(f'{future} was cancelled')
+        logging.debug(f'{future} was cancelled')
         if chained:
             chained.cancel()
         raise TaskError()
@@ -34,7 +36,6 @@ def pass_result(resolved: asyncio.Future, unresolved: asyncio.Future):
         unresolved.set_result(
             resolved.result()
         )
-
 
 def ensure_this_is_a_coroutine(fn_or_coro):
     """
@@ -57,9 +58,14 @@ def ensure_this_is_a_coroutine(fn_or_coro):
     else:
         raise ValueError('Parameter is not method, function or coroutine')
 
-class Async(object):
 
-    def __init__(self, work, *args, **kwargs):
+from .monad import Monad
+from .error import ErrorMonad
+
+
+class Async(Monad(T)):
+
+    def __init__(self, work, *args, **kwargs) -> None:
 
         if isinstance(work, asyncio.Future):
             self._future = work
@@ -75,16 +81,28 @@ class Async(object):
             )
         self._chained = None
 
-    def bind(self, next_work: Any):
+    @staticmethod
+    def unit(value):
+        return Async(value)
+
+    @staticmethod
+    def left(e: Exception) -> 'ErrorMonad[T]':
+        """Create a non-successful computation."""
+        return ErrorMonad(e)
+
+    def bind(self, next_work: Any) -> 'Async[U]':
+        if isinstance(next_work, Exception):
+            return self.left(next_work) # Propagate errors
+
         next_work = ensure_this_is_a_coroutine(next_work)
 
         def resolved(func):
             try:
                 res = check_result(func, self._chained)
-            except TaskError:
-                return
-            t: asyncio.Future = asyncio.ensure_future(next_work(res))
-            t.add_done_callback(lambda func: pass_result(func, new_future))
+            except TaskError as e:
+                return self.left(next_work) # Return an Error Monad if one occurred.
+            task: asyncio.Future = asyncio.ensure_future(next_work(res))
+            task.add_done_callback(lambda func: pass_result(func, new_future))
 
         new_future = asyncio.Future()
         next_async = Async(new_future)
@@ -98,3 +116,7 @@ class Async(object):
     @property
     def future(self):
         return self._future
+
+    @property
+    def errored(self):
+        return self._future.done() and self._future.exception()

@@ -1,13 +1,31 @@
 from dataclasses import dataclass
-from enum import Enum
-import os
-from typing import Optional, Generic, TypeVar, Callable
 from functools import wraps
+from enum import Enum
+import logging
+import os
+import threading
+from typing import Any, Optional, Generic, TypeVar, Callable
+
+
 import psutil
+from pydantic import BaseModel
+
+
+from configs.configs import Configs
+from utils.converter_system.monads.monad import Monad
+from utils.converter_system.monads.either import Either
+from utils.converter_system.monads.error import ErrorMonad
+from utils.converter_system.monads.helper_functions import start, stop
+
 
 # Type definitions
 T = TypeVar('T')
 E = TypeVar('E')
+Resource = TypeVar('Resource') # TODO Import the pydantic model from experiments file.
+
+
+
+
 
 class ValidationResult(Enum):
     VALID = "VALID"
@@ -21,65 +39,42 @@ class ConversionStatus(Enum):
     ERROR = "ERROR"
     SUCCESS = "SUCCESS"
 
-# Either monad for robust error handling
-@dataclass
-class Either(Generic[E, T]):
-    value: T | E
-    is_right: bool
-
-    @classmethod
-    def right(cls, value: T) -> 'Either[E, T]':
-        return cls(value, True)
-
-    @classmethod
-    def left(cls, error: E) -> 'Either[E, T]':
-        return cls(error, False)
-
-    def map(self, f: Callable[[T], T]) -> 'Either[E, T]':
-        if self.is_right:
-            return Either.right(f(self.value))
-        return self
-
-    def bind(self, f: Callable[[T], 'Either[E, T]']) -> 'Either[E, T]':
-        if self.is_right:
-            return f(self.value)
-        return self
-
-import threading
-
 # Health monitoring system
 class HealthMonitor:
-    def __init__(self):
+
+    def __init__(self, resources=None, configs=None):
+        self.configs = configs
+        self.resources = resources
+
         self.counter_lock = threading.RLock()
         self.memory_threshold = 0.85
         self.max_file_handles = 100
         self.status = ConversionStatus.IDLE
 
-    def check_memory(self) -> Either[str, float]:
+    def check_memory(self, x: Any) -> Any|Exception:
         memory = psutil.virtual_memory()
         if memory.percent > (self.memory_threshold * 100):
-            return Either.left(f"Memory usage too high: {memory.percent}%")
-        return Either.right(memory.percent)
+            return ValueError(f"Memory usage too high: {memory.percent}%")
+        return x
 
-    def check_file_handles(self) -> Either[str, int]:
-        try:
-            # On Windows, use os.getpid() to get the current process ID
-            pid = os.getpid()
+    def check_file_handles(self, x: Any) -> Either[str, int]:
 
-            # Use psutil to get the number of open file descriptors for the current process
-            process = psutil.Process(pid)
-            current_handles = process.num_fds()
-            if current_handles >= self.max_file_handles:
-                return Either.left(f"Too many open files: {current_handles}")
-            return Either.right(current_handles)
+        # Get the current process ID
+        if os.name == 'nt':
+            # On Windows, we'll use the pid we just obtained
+            current_handles = psutil.Process(os.getpid()).num_fds()
+        else: # On Linux, psutil.Process().num_fds() works directly
+            current_handles = psutil.Process().num_fds()
 
-        except Exception as e:
-            # If num_fds() is not available (older versions of psutil on Windows), 
-            # we'll return a default value
-            return Either.right(0)
+        # Use psutil to get the number of open file descriptors for the current process
+        if current_handles >= self.max_file_handles:
+            return ValueError(f"Too many open files: {current_handles}")
+        return x
 
-# Circuit Breaker implementation
+
+# Circuit Breaker implementation TODO Rewrite with Monad pipelines in mind.
 class CircuitBreaker:
+
     def __init__(self, failure_threshold: int = 5, reset_timeout: int = 60):
         self.failure_count = 0
         self.failure_threshold = failure_threshold
@@ -104,24 +99,41 @@ class CircuitBreaker:
                 raise e
         return wrapper
 
-# Resource manager with context
+# Placeholder Resource manager with context
 class ResourceManager:
-    def __init__(self):
-        self.health_monitor = HealthMonitor()
-        
+
+    def __init__(self, resources=None, configs=None):
+        self.configs = configs
+        self.resources = resources
+
+        self._logger = self.resources['logger']
+
+        self._throttle = self.resources['throttle']
+        self._check_memory = self.resources['check_memory']
+        self._check_file_handles = self.resources['check_file_handles']
+
     def __enter__(self):
-        health_check = (
-            self.health_monitor.check_memory()
-            .bind(lambda _: self.health_monitor.check_file_handles())
-        )
-        
-        if not health_check.is_right:
-            raise ResourceWarning(f"Health check failed: {health_check.value}")
+        x = True # Dummy value. 
+        health_check: Monad = start(x, ErrorMonad
+            ) >> (
+                lambda x: self._check_file_handles(x)
+            ) >> (
+                lambda x: self._check_memory(x)
+            ) >> stop
+
+        if health_check.errored:
+            self._logger.error(f"Health check failed: {health_check.value}")
+            self._throttle(health_check.value)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         # Cleanup resources
         pass
+
+    def throttle(self, error: Exception):
+        """Stop the allocation of resources to the Core Resource Manager."""
+        self._throttle(error)
+
 
 # Example usage with all patterns combined
 @dataclass
@@ -131,29 +143,26 @@ class ConversionResult:
     error: Optional[str]
 
 
-import logging
-from pydantic import BaseModel
-
-
-from pydantic_models.configs import Configs
-from pydantic_models.resource.resource import Resource
-
-
-from typing import Any
-
 class ResourceException(BaseModel, Exception):
     cid: str
     exception: Exception = None
     message: Optional[str] = None
 
+
 class CoreErrorManager:
 
-    def __init__(self, configs: Configs):
-        self.logger = configs.logger
+    def __init__(self, resources=None, configs=None):
+        self.configs = configs
+        self.resources = resources
+
+        self._logger: logging.Logger = self.resources['logger']
 
     def log(self, result: Resource) -> Resource:
         """
         
         """
         if isinstance(result, Exception):
-            self.logger.error(f"Error occurred: {result}")
+            self._logger.error(f"Error occurred: {result}")
+
+    def kill_pipeline():
+        pass

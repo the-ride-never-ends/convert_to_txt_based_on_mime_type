@@ -12,7 +12,9 @@ from file_paths_manager.file_paths_manager import FilePathsManager
 from non_system_resource_manager.non_system_resource_manager import NonSystemResourceManager
 from system_resource_manager.system_resource_manager import SystemResourceManager
 
+
 Injectable = TypeVar('Injectable', bound=Any)
+
 
 @dataclass
 class ResourceBreakdown:
@@ -103,7 +105,7 @@ class ExternalResourceManager():
         self.current_used_network_bandwidth = 0
         self.current_used_gpu_processing_time = 0
         self.current_used_io_operations = 0
-        
+
         # Non-system resource tracking
         self.api_call_counts = {}
         self.api_rate_limits = {}
@@ -352,9 +354,105 @@ class ExternalResourceManager():
         """
         Implement resource prioritization strategies.
 
-        This method implements resource prioritization strategies to ensure
-        that critical parts of the program receive the necessary resources.
+        Priorities are determined by the following:
+        - File type prioritization for pending files
+        - Whether larger or smaller file sizes take precendence.
+
         """
+        # Define priority strategies based on configuration
+        file_type_priority = getattr(self.configs, 'FILE_TYPE_PRIORITY_MOST_TO_LEAST', [])
+        prioritize_larger_files = getattr(self.configs, 'LARGER_FILES_FIRST', False)
+        prioritize_api_calls = getattr(self.configs, 'PRIORITIZE_API_CALLS', {})
+        resource_priority_rules = getattr(self.configs, 'RESOURCE_PRIORITY_RULES', {})
+        task_completion_priority = getattr(self.configs, 'TASK_COMPLETION_PRIORITY', True)
+        
+        # File type prioritization for pending files
+        if file_type_priority:
+            pending_files = list(self.active_file_paths)
+            prioritized_files = []
+            
+            # Sort files by type priority
+            for file_type in file_type_priority:
+                matching_files = [f for f in pending_files if f.lower().endswith(f".{file_type.lower()}")]
+                prioritized_files.extend(matching_files)
+                pending_files = [f for f in pending_files if f not in matching_files]
+            
+            # Add any files with non-prioritized types at the end
+            prioritized_files.extend(pending_files)
+            
+            # Further sort by file size if configured
+            if prioritize_larger_files and hasattr(self.resources, 'file_system'):
+                fs = self.resources['file_system']
+                prioritized_files.sort(key=lambda f: fs.get_file_size(f), reverse=True)
+            
+            # Update the active file paths with the new priority order
+            self.active_file_paths = set(prioritized_files)
+        
+        # Get priority settings from configuration for system resources
+        resource_priorities = getattr(self.configs, 'RESOURCE_PRIORITIES', {})
+        
+        # By default, if a component has higher priority, it gets more resources
+        if not resource_priorities:
+            return
+        
+        # Prioritize components based on their priority values
+        components_by_priority = sorted(resource_priorities.items(), key=lambda x: x[1], reverse=True)
+        
+        # Allocate resources based on priority
+        for resource_type in ["ram", "vram", "cpu_cores", "disk_space", "network_bandwidth", "gpu_processing_time"]:
+            available_resource = getattr(self, f"total_allocated_{resource_type}") - getattr(self, f"current_used_{resource_type}")
+            
+            if available_resource <= 0:
+                continue
+            
+            total_priority = sum(priority for _, priority in components_by_priority)
+            if total_priority <= 0:
+                continue
+            
+            # Apply resource-specific rules if defined
+            if resource_type in resource_priority_rules:
+                # Custom prioritization rules for this resource
+                custom_priorities = resource_priority_rules[resource_type]
+                components_by_priority = sorted(custom_priorities.items(), key=lambda x: x[1], reverse=True)
+                total_priority = sum(priority for _, priority in components_by_priority if priority > 0)
+            
+            # Allocate based on priority ratio
+            for component, priority in components_by_priority:
+                if priority <= 0:
+                    continue
+                    
+            resource_to_allocate = int((priority / total_priority) * available_resource)
+            if resource_to_allocate > 0 and hasattr(self.resources, component):
+                # Apply the allocation
+                setattr(self, f"current_used_{resource_type}", 
+                   getattr(self, f"current_used_{resource_type}") + resource_to_allocate)
+                
+                # Notify component (would be implemented in a real system)
+                if hasattr(self.resources, 'resource_notifier'):
+                    self.resources['resource_notifier'].allocate(
+                        component=component, 
+                        resource_type=resource_type, 
+                        amount=resource_to_allocate
+                    )
+
+        # Prioritize API calls if configured
+        if prioritize_api_calls and self.api_call_counts:
+            for api, priority in prioritize_api_calls.items():
+                if api in self.api_call_counts and priority > 0:
+                    # Higher priority APIs get more call allocation when rate limited
+                    pass  # Implementation would depend on how API calls are managed
+
+        # Task completion priority - allocate more resources to tasks close to completion
+        if task_completion_priority and hasattr(self.resources, 'task_manager'):
+            task_manager = self.resources['task_manager']
+            near_completion_tasks = task_manager.get_tasks_near_completion()
+            
+            # Boost resources for nearly complete tasks # TODO
+            for task in near_completion_tasks: 
+            # Implementation would allocate additional resources to these tasks
+                pass
+
+
         # Get priority settings from configuration
         resource_priorities = getattr(self.configs, 'RESOURCE_PRIORITIES', {})
         
